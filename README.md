@@ -1,4 +1,4 @@
-# WARHAMMER III Battle Logger
+# WARHAMMER III Full Battle Details
 
 An external battle logger for **Total War: WARHAMMER III**. It runs quietly in the Windows notification tray and creates interactive HTML reports after your battles.
 
