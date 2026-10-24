@@ -96,4 +96,4 @@ GitHub Actions builds a downloadable test artifact on pushes, pull requests and 
 
 ## Feedback
 
-Report bugs through [GitHub Issues](https://github.com/Americanyutao/Warhammer-Post-Battle-Logger/issues). Include your game version, logger version, what happened and what you expected. A screenshot or standalone HTML report can help explain a report issue.
+Report bugs through [Discord](https://discord.gg/v27y7AW7Kz) @Americanyutao
