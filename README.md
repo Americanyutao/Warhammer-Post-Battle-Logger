@@ -1,3 +1,21 @@
+<p align="center">
+  <a href="https://www.patreon.com/c/Americanyutao">
+    <img src="https://img.shields.io/badge/Support%20on-Patreon-FF424D?style=for-the-badge&logo=patreon&logoColor=white" alt="Support on Patreon">
+  </a>
+  <a href="https://www.youtube.com/@Americanyutao">
+    <img src="https://img.shields.io/badge/Watch%20on-YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch on YouTube">
+  </a>
+  <a href="https://www.twitch.tv/americanyutao">
+    <img src="https://img.shields.io/badge/Watch%20on-Twitch-9146FF?style=for-the-badge&logo=twitch&logoColor=white" alt="Watch on Twitch">
+  </a>
+  <a href="https://discord.com/invite/v27y7AW7Kz">
+    <img src="https://img.shields.io/badge/Join%20our-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join our Discord">
+  </a>
+</p>
+<p align="center">
+  <img src="media/icon.png" width="96" alt="Damage Meter icon">
+</p>
+
 # WARHAMMER III Full Battle Details
 
 An external battle logger for **Total War: WARHAMMER III**. It runs quietly in the Windows notification tray and creates interactive HTML reports after your battles.
