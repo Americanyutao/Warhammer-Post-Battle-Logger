@@ -13,7 +13,7 @@
   </a>
 </p>
 <p align="center">
-  <img src="media/icon.png" width="96" alt="Damage Meter icon">
+  <img src="assets/app/battle_logger-128.png" width="96" alt="Damage Meter icon">
 </p>
 
 # WARHAMMER III Full Battle Details
