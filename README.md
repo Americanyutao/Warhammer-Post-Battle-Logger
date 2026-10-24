@@ -4,6 +4,8 @@ An external battle logger for **Total War: WARHAMMER III**. It runs quietly in t
 
 Compare unit performance, explore damage breakdowns, and inspect graphs of health, leadership, fatigue, movement and Winds of Magic.
 
+Example output: https://examplebattle.yutaohi.workers.dev/
+
 ## Download and run
 
 1. Open the [latest release](https://github.com/Americanyutao/Warhammer-Post-Battle-Logger/releases/latest).
