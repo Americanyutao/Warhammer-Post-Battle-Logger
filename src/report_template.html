@@ -1,0 +1,13 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Warhammer III · Battle Report</title><style>__CSS__</style></head><body>
+<header class="report-heading"><div><p class="eyebrow">WARHAMMER III · POST BATTLE REPORT</p><h1>Battle overview</h1><p id="subtitle" class="muted"></p></div><div class="report-controls"><label class="scope-control">Show <select id="side"><option>Allied</option><option>Enemy</option><option>All</option></select></label><nav aria-label="Report views"><button id="main-tab" aria-pressed="true">Main view</button><button id="unit-tab" aria-pressed="false">Unit view</button></nav></div></header>
+<div id="battle-result" class="battle-result" role="status"></div><div id="mini-tray" class="mini-tray" hidden></div><p id="mini-status" class="muted" role="status"></p>
+<section id="main-view"><div class="section-heading"><div><p class="eyebrow">COMPARE YOUR UNITS</p><h2>Category breakdown</h2></div></div>
+<div id="categories" class="categories" aria-label="Statistic categories"></div><p id="category-note" class="muted"></p>
+<div class="table-shell"><table><thead><tr id="head"></tr></thead><tbody id="rows"></tbody></table></div><p class="muted">Select a unit to open its workspace. Click a column heading to change the sort order. — means unmeasured, not zero.</p></section>
+<div id="unit-header" hidden class="unit-header"><div id="unit-portrait"></div><div class="unit-identity"><p class="eyebrow" id="unit-side"></p><h2 id="unit-title">Select a unit</h2><p id="unit-status" class="muted"></p></div><label class="unit-value-control" title="Default lord/hero value is 500 gold per level; level 1 is assumed if no level was captured. You can edit the value for this report.">Unit value<input id="unit-value" type="number" min="0" step="any" placeholder="Set value"><small id="unit-value-source"></small></label><label class="unit-picker">Choose unit<select id="unit-select"></select></label></div>
+<section id="unit-view" hidden><div id="unit-summary" class="cards compact"></div><p id="unit-data-note" class="muted" hidden></p><div class="section-heading"><div><p class="eyebrow">YOUR UNIT WORKSPACE</p><h2>Information views</h2></div></div>
+<label class="explanation-control"><input id="hide-graph-explanations" type="checkbox"> Hide graph explanations</label>
+<div id="unit-panels" class="panels"></div>
+<details id="recorded-details"><summary>Recorded statistics & timelines</summary><p class="muted">Existing captured values remain available here while the information views are being designed.</p><div id="detail"></div></details></section>
+
+<script id="data" type="application/json">__DATA__</script><script>__JS__</script></body></html>
