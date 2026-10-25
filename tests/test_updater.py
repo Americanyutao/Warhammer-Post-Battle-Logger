@@ -81,7 +81,9 @@ class UpdateLifecycleTests(unittest.TestCase):
                 with patch('updater.sys.executable',str(stage/'WH3BattleLogger.exe')),patch('updater.install_files') as install,patch('updater.subprocess.Popen') as launch:
                     updater.apply_update(dest,process.pid)
                     self.assertIsNotNone(process.poll())
-                    install.assert_called_once_with(stage,dest)
+                    # Windows runners can supply an 8.3 TEMP path; the updater
+                    # intentionally resolves it to the full installation path.
+                    install.assert_called_once_with(stage.resolve(),dest.resolve())
                     launch.assert_called_once()
             finally:process.wait(timeout=5)
 
