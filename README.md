@@ -1,6 +1,92 @@
-# WARHAMMER III Battle Logger
+<p align="center">
+  <a href="https://www.patreon.com/c/Americanyutao">
+    <img src="https://img.shields.io/badge/Support%20on-Patreon-FF424D?style=for-the-badge&logo=patreon&logoColor=white" alt="Support on Patreon">
+  </a>
+  <a href="https://www.youtube.com/@Americanyutao">
+    <img src="https://img.shields.io/badge/Watch%20on-YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch on YouTube">
+  </a>
+  <a href="https://www.twitch.tv/americanyutao">
+    <img src="https://img.shields.io/badge/Watch%20on-Twitch-9146FF?style=for-the-badge&logo=twitch&logoColor=white" alt="Watch on Twitch">
+  </a>
+  <a href="https://discord.com/invite/v27y7AW7Kz">
+    <img src="https://img.shields.io/badge/Join%20our-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join our Discord">
+  </a>
+</p>
+<p align="center">
+  <img src="assets/app/battle_logger-128.png" width="96" alt="Battle Logger icon">
+</p>
 
-An external battle logger for Total War: WARHAMMER III that runs quietly in the Windows tray and generates interactive post-battle reports. Analyze unit damage, healing estimates, ammunition, fatigue, leadership, movement heatmaps and Winds of Magic in standalone HTML reports.
+# WARHAMMER III Full Battle Details
+
+An external battle logger for **Total War: WARHAMMER III**. It runs quietly in the Windows notification tray and creates interactive HTML reports after your battles.
+
+Compare unit performance, explore damage breakdowns, and inspect graphs of health, leadership, fatigue, movement and Winds of Magic.
+
+[View an example battle report](https://examplebattle.yutaohi.workers.dev/)
+
+## Download and run
+
+1. Open the [latest release](https://github.com/Americanyutao/Warhammer-Post-Battle-Logger/releases/latest).
+2. Under **Assets**, download the Windows application ZIP. Do not download the **Source code** archives.
+3. Right-click the ZIP and choose **Extract All**. Extract it into a folder you can write to.
+4. Open the extracted folder and run **WH3BattleLogger.exe**. Keep the **_internal** folder beside the executable.
+5. Start the logger before your battle and leave it running through the results screen.
+
+**No application window will appear.** Look for the **LOG** icon in the Windows notification tray, including the hidden icons menu next to the clock.
+
+Right-click the tray icon:
+
+- **Open reports** opens the folder containing your recordings and reports. Open an **HTML** report in your browser.
+- **Check for updates** checks GitHub for a newer stable version and offers to download and install it. Available in v1.1.0 and later.
+- **Exit** finishes saving the current recording and closes the logger.
+
+The packaged application does not require Python. It requires **64-bit Windows** and a supported build of **Total War: WARHAMMER III**. Game updates may require an updated logger.
+
+## Updating (v1.1.0 and later)
+
+Right-click the **LOG** tray icon and choose **Check for updates**. The logger compares its installed version with the latest stable GitHub Release. It checks only when you choose this option; it does not automatically check or install updates.
+
+If an update is available, approve the download. Recording continues while it downloads. The logger verifies the download and checks the new application, then asks before saving, closing, installing and restarting. **Install updates between battles** so your recording is not interrupted.
+
+Your **captures** folder, existing reports and **logger.key** stay in place. Previous application files are kept in a `.update-backup-*` folder for recovery.
+
+**Upgrading from v1.0.0:** download v1.1.0 or a later release manually using the steps above. Exit the old logger first. Keep your existing **captures** folder, including **logger.key**; if you extract the new app into a separate folder, copy the captures folder beside the new executable. After this upgrade, future updates can be installed from the tray menu.
+
+## What the reports show
+
+- **Battle overview:** victory or defeat, with the result classification when captured.
+- **Unit comparisons:** damage dealt, gold damage, kills, friendly fire, self damage, calculated damage taken, calculated healing received, HP and models.
+- **Damage breakdowns:** melee, missiles and spells, direct damage abilities and effects, plus separate source details.
+- **Ranged statistics:** initial primary and secondary ammunition and the net decrease in each ammunition pool.
+- **Unit graphs:** health, models, damage, ammunition, fatigue state and points, leadership, healing information and elevation.
+- **Movement and occupancy:** sampled paths and time spent in different areas, using a shared map frame for the battle.
+- **Winds of Magic:** usable winds and reserves over time.
+- **Activity:** time spent in observed activities and states, idle time after rallying, and sampled rally and landing counts.
+
+Choose allied, enemy or all units. Unit graphs can also be opened in separate mini windows, with up to four pop-outs.
+
+## How recording works
+
+The logger reads supported game data from the running game's memory without modifying it. It is an external application rather than a Steam Workshop mod.
+
+Sampling defaults to once per second. Deployment supplies initial unit values, while combat timelines begin when the battle starts. Duration measurements use battle simulation time, so pauses and speed changes do not count as normal-speed elapsed time.
+
+Reports and encrypted recordings are saved in the **captures** folder beside the application:
+
+- **.html:** a standalone report you can open or share without running the logger.
+- **.wh3log:** an encrypted battle recording.
+- **logger.key:** the private key needed to read your encrypted recordings. Keep it with recordings you want to reopen.
+
+## Interpreting the statistics
+
+Some statistics are sampled observations or calculations rather than complete event histories. Events between samples may be missed.
+
+- **Ammunition:** compares beginning and ending ammunition. Replenishment is not accounted for separately, and dead models take their remaining ammunition with them. The decrease is not a verified count of projectiles fired.
+- **Healing and damage taken:** calculated using HP and healing-budget data where available. Healing-cap changes and other capacity changes can affect the calculation. The base healing budget is 75% of maximum HP; healing-cap increases multiply that base. For example, +100% increased healing cap gives 2x75 = 150% of maximum HP as healing budget.
+- **Damage categories:** follow the game's recorded source categories. Some spells, including vortex effects, can appear under missiles and spells.
+- **Lords and heroes:** the default unit value is 500 gold per level. Treat trade comparisons using that value as estimates.
+- **Movement, rallies and landings:** derived from sampled positions and state changes.
+- **Barrier statistics:** remain work in progress.
 
 ## Screenshots
 
@@ -24,20 +110,6 @@ Compare friendly fire across units.
 
 <img src="docs/screenshots/friendly-fire.png" alt="Friendly fire column sorted by damage" width="117">
 
-## Run
-
-Extract the complete Windows build into a writable folder and run `WH3BattleLogger.exe`. Keep `_internal` beside the executable. Start it before your battle and leave it running through the results screen.
-
-Right-click the LOG tray icon to **Open reports** or **Exit**. Reports and encrypted recordings are saved in `captures` beside the app. Keep `logger.key` with recordings you want to reopen. HTML reports work on their own.
-
-Windows 64-bit and a supported game build are required. The logger reads game memory without modifying it. Statistics include sampled observations and calculated estimates; ammunition compares starting and ending totals, including ammunition lost with dead models and excluding replenishment accounting.
-
-## Automated builds
-
-Every push, pull request, or manual run starts **Build Windows app** in the repository's **Actions** tab. Open a successful run and download **WH3BattleLogger-Windows-x64** under **Artifacts**. Extract everything before launching the executable. These are downloadable test builds; the workflow does not publish a GitHub Release.
-
-Cloud checks cover offline regression tests, report JavaScript syntax, executable icons/subsystem, bundled resources, encryption and report generation. Game executable reference checks, original asset export comparison, and interactive desktop/tray checks run locally.
-
 ## Build from source
 
 Use Python 3.13 on 64-bit Windows:
@@ -49,4 +121,15 @@ python -B tools/build_release.py
 python -B tools/check_release.py --headless
 ```
 
-Output: `release/WH3BattleLogger/`. For interactive tray validation, run `python -B tools/check_release.py` in a normal Windows desktop session. `Run-Battle-Logger.cmd` launches the source debugging interface.
+The application is built into `release/WH3BattleLogger/`. Keep the complete folder together. Run `python -B tools/check_release.py` in a normal Windows desktop session for the additional tray checks. `Run-Battle-Logger.cmd` opens the source debugging interface.
+
+GitHub Actions builds a downloadable test artifact on pushes, pull requests and manual runs. Public downloads are distributed through **Releases**; the current workflow does not publish releases automatically.
+
+
+For each public update, increase `src/version.py` and use the matching `vMAJOR.MINOR.PATCH` release tag (for example, `1.1.0` in the source and `v1.1.0` on GitHub). Build the app and upload the clean, complete application as **`WH3BattleLogger-Windows-x64.zip`**, with the executable and `_internal` together, directly inside the ZIP or inside one enclosing folder. Exclude captures, keys, logs and backup folders.
+
+Publish it as the latest stable release; drafts and prereleases are not offered by the updater. The updater requires GitHub's asset SHA-256 checksum and checks that the packaged version matches the release tag. Publish a new version rather than replacing a package under an existing version. Pushing source changes alone does not distribute an app update. No GitHub token is bundled or required.
+
+## Feedback
+
+Report bugs through [Discord](https://discord.gg/v27y7AW7Kz) @Americanyutao

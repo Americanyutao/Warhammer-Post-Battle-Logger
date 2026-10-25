@@ -13,6 +13,8 @@ from icons import set_app_identity
 from paths import DATA_ROOT, RESOURCE_ROOT, FROZEN
 from tray import TrayIcon
 from worker import Worker, RATES
+from updater import UpdateChecker, apply_update, launch_installer
+from version import VERSION
 
 
 def open_reports(root):
@@ -29,6 +31,7 @@ class BackgroundApp:
         self.worker=worker if worker is not None else Worker(self.root,self.channel,rate,pid,preview=False)
         self.tray=tray if tray is not None else TrayIcon()
         self.last_status=None
+        self.updates=UpdateChecker(self.tray.actions)
 
     def run(self):
         try:
@@ -40,6 +43,8 @@ class BackgroundApp:
                 try:action=self.tray.actions.get(timeout=.2)
                 except queue.Empty:action=None
                 if action=='exit':break
+                if action=='check_updates':self.updates.start()
+                if action=='install_update':break
                 if action=='open_reports':open_reports(self.root)
                 try:
                     message=self.channel.get_nowait()
@@ -60,6 +65,8 @@ class BackgroundApp:
             self.worker.stop_event.set()
             if self.worker.is_alive():self.worker.join()
             self.tray.stop()
+        if self.updates.pending:
+            launch_installer(self.updates.pending,Path(sys.executable).resolve().parent)
 
 
 def acquire_instance():
@@ -100,7 +107,7 @@ def check_install(destination):
         assert list(read_log(log,key))[-1]['kind']=='footer'
         report=convert(log,key)
         assert 'Battle overview' in report.read_text(encoding='utf-8')
-    Path(destination).write_text(json.dumps(dict(frozen=FROZEN,profiles=len(profiles),
+    Path(destination).write_text(json.dumps(dict(frozen=FROZEN,version=VERSION,profiles=len(profiles),
         icon_resolved=card,report_rendered=True,encryption_roundtrip=True),indent=2)+'\n',encoding='utf-8')
 
 
@@ -110,10 +117,16 @@ def main():
     parser.add_argument('--pid',type=int)
     parser.add_argument('--data-dir',type=Path,default=DATA_ROOT,help=argparse.SUPPRESS)
     parser.add_argument('--check-install',type=Path,help=argparse.SUPPRESS)
+    parser.add_argument('--apply-update',type=Path,help=argparse.SUPPRESS)
+    parser.add_argument('--wait-pid',type=int,help=argparse.SUPPRESS)
     args=parser.parse_args()
     handle=None;kernel=None
     try:
         if os.name!='nt':raise RuntimeError('The release logger requires Windows.')
+        if args.apply_update:
+            if not FROZEN or not args.wait_pid:raise RuntimeError('Invalid updater invocation.')
+            apply_update(args.apply_update,args.wait_pid)
+            return
         if args.check_install:
             check_install(args.check_install)
             return

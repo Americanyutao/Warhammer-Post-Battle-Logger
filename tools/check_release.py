@@ -1,5 +1,6 @@
 """Check the built GUI executable and its own hidden tray/Exit path."""
 import ctypes
+import argparse
 from ctypes import wintypes as w
 import json
 import os
@@ -10,12 +11,16 @@ import tempfile
 import time
 
 P=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(P/'build/packaging-deps'))
+sys.path.insert(0,str(os.environ.get('WH3_BUILD_DEPS',P/'build/packaging-deps')))
 import pefile
 
 
 def main():
-    exe=P/'release/WH3BattleLogger/WH3BattleLogger.exe'
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--app-dir',type=Path,default=P/'release/WH3BattleLogger')
+    parser.add_argument('--headless',action='store_true')
+    args=parser.parse_args()
+    exe=args.app_dir/'WH3BattleLogger.exe'
     pe=pefile.PE(str(exe))
     assert pe.OPTIONAL_HEADER.Subsystem==2,'Release must have no console subsystem.'
     resource_types={entry.id for entry in pe.DIRECTORY_ENTRY_RESOURCE.entries}
@@ -25,9 +30,9 @@ def main():
     subprocess.run([str(exe),'--check-install',str(install)],check=True,timeout=30)
     result=json.loads(install.read_text(encoding='utf-8'))
     assert result['frozen'] and result['report_rendered'] and result['encryption_roundtrip']
-    assert not list((P/'release/WH3BattleLogger').rglob('*.wh3log'))
-    assert not list((P/'release/WH3BattleLogger').rglob('logger.key'))
-    if '--headless' in sys.argv:
+    assert not list(args.app_dir.rglob('*.wh3log'))
+    assert not list(args.app_dir.rglob('logger.key'))
+    if args.headless:
         result.update(gui_subsystem=True,embedded_icons=True)
         (P/'build/release-headless-check.json').write_text(json.dumps(result,indent=2)+'\n',encoding='utf-8')
         print(json.dumps(result,indent=2))
@@ -75,8 +80,8 @@ def main():
         finally:
             if process and process.poll() is None:
                 process.terminate();process.wait(timeout=5)
-    assert not list((P/'release/WH3BattleLogger').rglob('*.wh3log'))
-    assert not list((P/'release/WH3BattleLogger').rglob('logger.key'))
+    assert not list(args.app_dir.rglob('*.wh3log'))
+    assert not list(args.app_dir.rglob('logger.key'))
     (P/'build/release-startup-check.json').write_text(json.dumps(result,indent=2)+'\n',encoding='utf-8')
     print(json.dumps(result,indent=2))
 

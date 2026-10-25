@@ -12,7 +12,7 @@ P=Path(__file__).resolve().parents[1]
 
 
 def main():
-    dependencies=P/'build/packaging-deps'
+    dependencies=Path(os.environ.get('WH3_BUILD_DEPS', P/'build/packaging-deps'))
     sys.path.insert(0,str(dependencies))
     if importlib.util.find_spec('PyInstaller') is None:
         raise RuntimeError('Install PyInstaller into build/packaging-deps before building.')
@@ -36,6 +36,7 @@ def main():
         'WARHAMMER III Battle Logger\n\n'
         'Run WH3BattleLogger.exe before your battle. It runs only in the notification tray.\n'
         'Right-click the LOG icon: Open reports opens the captures folder in File Explorer; '
+        'Check for updates offers a download and restart when a newer release is available; '
         'Exit finishes saving the current capture and report before closing.\n'
         'Deployment supplies initial values; combat timelines begin when battle starts. '
         'Leave the logger running through the results screen.\n'
@@ -45,8 +46,10 @@ def main():
     executable=destination/'WH3BattleLogger.exe'
     if not executable.is_file():raise RuntimeError('Release executable was not produced.')
     import PyInstaller
+    sys.path.insert(0,str(P/'src'))
+    from version import VERSION
     (P/'build/release-build.json').write_text(json.dumps(dict(executable=str(executable),
-        pyinstaller=PyInstaller.__version__,python=sys.version,windowless=True,
+        version=VERSION,pyinstaller=PyInstaller.__version__,python=sys.version,windowless=True,
         private_capture_data_included=False),indent=2)+'\n',encoding='utf-8')
     print(executable)
 
