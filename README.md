@@ -101,6 +101,10 @@ Some statistics are sampled observations or calculations rather than complete ev
 - **Movement, rallies and landings:** derived from sampled positions and state changes.
 - **Barrier statistics:** remain work in progress.
 
+Move along the **Statline & buffs/debuffs** timeline to inspect a unit's stats and active effects at each recorded moment. Green stat changes show gains from the initial statline; red changes show losses.
+
+![Animated unit statline and buff/debuff timeline](docs/screenshots/statline-buffs-timeline.gif)
+
 ## Screenshots
 
 Compare unit performance in the battle overview, including damage, gold damage, damage taken, status, HP and models.
