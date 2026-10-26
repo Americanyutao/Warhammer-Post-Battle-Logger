@@ -7,13 +7,15 @@ from pathlib import Path
 import queue
 import sys
 import traceback
+import threading
 
 sys.dont_write_bytecode=True
 from icons import set_app_identity
 from paths import DATA_ROOT, RESOURCE_ROOT, FROZEN
 from tray import TrayIcon
 from worker import Worker, RATES
-from updater import UpdateChecker, apply_update, launch_installer
+from updater import UpdateChecker, apply_update, launch_installer, cleanup_update, cleanup_legacy_backups
+from update_ui import ProgressWindow
 from version import VERSION
 
 
@@ -32,6 +34,7 @@ class BackgroundApp:
         self.tray=tray if tray is not None else TrayIcon()
         self.last_status=None
         self.updates=UpdateChecker(self.tray.actions)
+        self.about=None
 
     def run(self):
         try:
@@ -39,11 +42,14 @@ class BackgroundApp:
             if not self.tray.ready.wait(5) or not self.tray.available:
                 raise RuntimeError(self.tray.error or 'Windows could not create the notification icon.')
             self.worker.start()
+            if FROZEN:threading.Thread(target=cleanup_after_start,args=(self.root,),daemon=True).start()
             while True:
                 try:action=self.tray.actions.get(timeout=.2)
                 except queue.Empty:action=None
                 if action=='exit':break
                 if action=='check_updates':self.updates.start()
+                if action=='about' and (self.about is None or not self.about.thread.is_alive()):
+                    self.about=ProgressWindow(title='About Battle Logger',about=True).start()
                 if action=='install_update':break
                 if action=='open_reports':open_reports(self.root)
                 try:
@@ -65,8 +71,19 @@ class BackgroundApp:
             self.worker.stop_event.set()
             if self.worker.is_alive():self.worker.join()
             self.tray.stop()
+            if self.about:self.about.close()
         if self.updates.pending:
             launch_installer(self.updates.pending,Path(sys.executable).resolve().parent)
+
+
+
+def cleanup_after_start(root, directory=None, pid=None):
+    try:
+        if directory:cleanup_update(directory,pid)
+        if directory is None:cleanup_legacy_backups(root)
+    except Exception:
+        log=Path(root)/'logs';log.mkdir(parents=True,exist_ok=True)
+        (log/'update-cleanup-error.txt').write_text(traceback.format_exc(),encoding='utf-8')
 
 
 def acquire_instance():
@@ -118,6 +135,7 @@ def main():
     parser.add_argument('--data-dir',type=Path,default=DATA_ROOT,help=argparse.SUPPRESS)
     parser.add_argument('--check-install',type=Path,help=argparse.SUPPRESS)
     parser.add_argument('--apply-update',type=Path,help=argparse.SUPPRESS)
+    parser.add_argument('--cleanup-update',type=Path,help=argparse.SUPPRESS)
     parser.add_argument('--wait-pid',type=int,help=argparse.SUPPRESS)
     args=parser.parse_args()
     handle=None;kernel=None
@@ -130,6 +148,9 @@ def main():
         if args.check_install:
             check_install(args.check_install)
             return
+        if args.cleanup_update:
+            if not FROZEN or not args.wait_pid:raise RuntimeError('Invalid cleanup invocation.')
+            threading.Thread(target=cleanup_after_start,args=(args.data_dir,args.cleanup_update,args.wait_pid),daemon=True).start()
         set_app_identity('release')
         handle,kernel=acquire_instance()
         if handle is None:return

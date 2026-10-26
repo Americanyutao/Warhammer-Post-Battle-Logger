@@ -36,11 +36,13 @@ jobs:
         run: python -B tools/build_release.py
       - name: Check packaged application without a desktop or game
         run: python -B tools/check_release.py --headless
-      - name: Upload complete application folder
+      - name: Package release ZIP and incremental update manifest
+        run: python -B tools/package_update.py
+      - name: Upload release ZIP and update manifest
         uses: actions/upload-artifact@v7
         with:
-          name: WH3BattleLogger-Windows-x64
-          path: release/WH3BattleLogger/
+          name: WH3BattleLogger-release-files
+          path: build/publish/
           if-no-files-found: error
           retention-days: 14
 

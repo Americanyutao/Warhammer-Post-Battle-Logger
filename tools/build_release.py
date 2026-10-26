@@ -31,18 +31,20 @@ def main():
     built=stage/'dist/WH3BattleLogger'
     # Merge only built app files. Existing captures/keys in a release stay intact.
     destination=P/'release/WH3BattleLogger'
-    shutil.copytree(built,destination,dirs_exist_ok=True)
-    (destination/'README.txt').write_text(
+    (built/'README.txt').write_text(
         'WARHAMMER III Battle Logger\n\n'
         'Run WH3BattleLogger.exe before your battle. It runs only in the notification tray.\n'
         'Right-click the LOG icon: Open reports opens the captures folder in File Explorer; '
-        'Check for updates offers a download and restart when a newer release is available; '
+        'Check for updates downloads changed files with progress and offers to restart; '
+        'About shows the installed version and GitHub release notes; '
         'Exit finishes saving the current capture and report before closing.\n'
         'Deployment supplies initial values; combat timelines begin when battle starts. '
         'Leave the logger running through the results screen.\n'
         'Reports, encrypted captures and their private logger.key are created in captures beside the app. '
         'Keep the key with the captures. HTML reports are readable standalone files.\n'
+        'Updates preserve captures and keep no permanent backup copy.\n'
         'Only the supported game builds are read; no game files or process memory are modified.\n',encoding='utf-8')
+    shutil.copytree(built,destination,dirs_exist_ok=True)
     executable=destination/'WH3BattleLogger.exe'
     if not executable.is_file():raise RuntimeError('Release executable was not produced.')
     import PyInstaller

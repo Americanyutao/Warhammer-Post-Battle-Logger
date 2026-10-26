@@ -38,6 +38,7 @@ Right-click the tray icon:
 
 - **Open reports** opens the folder containing your recordings and reports. Open an **HTML** report in your browser.
 - **Check for updates** checks GitHub for a newer stable version and offers to download and install it. Available in v1.1.0 and later.
+- **About** shows the installed version and opens its GitHub release notes.
 - **Exit** finishes saving the current recording and closes the logger.
 
 The packaged application does not require Python. It requires **64-bit Windows** and a supported build of **Total War: WARHAMMER III**. Game updates may require an updated logger.
@@ -46,9 +47,11 @@ The packaged application does not require Python. It requires **64-bit Windows**
 
 Right-click the **LOG** tray icon and choose **Check for updates**. The logger compares its installed version with the latest stable GitHub Release. It checks only when you choose this option; it does not automatically check or install updates.
 
-If an update is available, approve the download. Recording continues while it downloads. The logger verifies the download and checks the new application, then asks before saving, closing, installing and restarting. **Install updates between battles** so your recording is not interrupted.
+From v1.1.2 onward, the logger checks which application files changed and downloads only those portions of the release ZIP. The confirmation shows the actual download size. A progress window shows checking, downloading and installation; you can cancel before installation. Recording continues during the download. The logger verifies each downloaded file and tests the new application, then asks before saving, closing, installing and restarting. **Install updates between battles** so your recording is not interrupted.
 
-Your **captures** folder, existing reports and **logger.key** stay in place. Previous application files are kept in a `.update-backup-*` folder for recovery.
+Your **captures** folder, existing reports and **logger.key** stay in place. Successful updates keep one installed copy: temporary replacement files are removed, and backups created by older logger versions are cleaned up. Temporary copies of changed files are used only during installation to recover from a failed copy.
+
+**Coming from v1.1.0 or v1.1.1:** one full download is needed to obtain the new updater. Smaller downloads and download progress are available for subsequent updates. Large downloads are still possible when many files, game images or runtime dependencies change.
 
 **Upgrading from v1.0.0:** download v1.1.0 or a later release manually using the steps above. Exit the old logger first. Keep your existing **captures** folder, including **logger.key**; if you extract the new app into a separate folder, copy the captures folder beside the new executable. After this upgrade, future updates can be installed from the tray menu.
 
@@ -119,16 +122,22 @@ python -m pip install -r requirements-build.txt
 python -B tools/test_ci.py
 python -B tools/build_release.py
 python -B tools/check_release.py --headless
+python -B tools/package_update.py
 ```
 
 The application is built into `release/WH3BattleLogger/`. Keep the complete folder together. Run `python -B tools/check_release.py` in a normal Windows desktop session for the additional tray checks. `Run-Battle-Logger.cmd` opens the source debugging interface.
 
-GitHub Actions builds a downloadable test artifact on pushes, pull requests and manual runs. Public downloads are distributed through **Releases**; the current workflow does not publish releases automatically.
+GitHub Actions builds and tests on pushes, pull requests and manual runs. Download the **WH3BattleLogger-release-files** artifact and extract it. It contains the application ZIP and its update manifest. Attach **both files** to the GitHub Release; do not attach the outer Actions artifact ZIP. The workflow does not publish releases automatically.
 
 
-For each public update, increase `src/version.py` and use the matching `vMAJOR.MINOR.PATCH` release tag (for example, `1.1.0` in the source and `v1.1.0` on GitHub). Build the app and upload the clean, complete application as **`WH3BattleLogger-Windows-x64.zip`**, with the executable and `_internal` together, directly inside the ZIP or inside one enclosing folder. Exclude captures, keys, logs and backup folders.
+For each public update, increase `src/version.py` and use the matching `vMAJOR.MINOR.PATCH` release tag (for example, `1.1.2` in the source and `v1.1.2` on GitHub). After building, `tools/package_update.py` produces these two files in `build/publish/`:
 
-Publish it as the latest stable release; drafts and prereleases are not offered by the updater. The updater requires GitHub's asset SHA-256 checksum and checks that the packaged version matches the release tag. Publish a new version rather than replacing a package under an existing version. Pushing source changes alone does not distribute an app update. No GitHub token is bundled or required.
+- **`WH3BattleLogger-Windows-x64.zip`** — the complete, clean app for new users and older updaters.
+- **`WH3BattleLogger-update.json.gz`** — the compressed inventory of version, file sizes, checksums and byte locations used for smaller updates.
+
+Always attach both files from the **same build**, with these exact names. The ZIP is generated from app-owned files only, excluding captures, keys, logs and backup folders. Do not recompress or change the ZIP afterward: the manifest describes the exact generated bytes.
+
+Publish as the latest stable release; drafts and prereleases are not offered. The updater verifies GitHub's manifest checksum, verifies each changed file against that manifest, and checks that the packaged version matches the release tag. Missing metadata or a server that cannot supply partial downloads produces an error rather than silently downloading the full app. Publish a new version rather than replacing a package under an existing version. Pushing source alone does not distribute an app update. No GitHub token is bundled or required.
 
 ## Feedback
 
