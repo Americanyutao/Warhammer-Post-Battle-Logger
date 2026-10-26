@@ -127,7 +127,20 @@ python -B tools/package_update.py
 
 The application is built into `release/WH3BattleLogger/`. Keep the complete folder together. Run `python -B tools/check_release.py` in a normal Windows desktop session for the additional tray checks. `Run-Battle-Logger.cmd` opens the source debugging interface.
 
-GitHub Actions builds and tests on pushes, pull requests and manual runs. Download the **WH3BattleLogger-release-files** artifact and extract it. It contains the application ZIP and its update manifest. Attach **both files** to the GitHub Release; do not attach the outer Actions artifact ZIP. The workflow does not publish releases automatically.
+GitHub Actions builds and tests on pushes, pull requests and manual runs. Pushing a version tag also prepares a **draft GitHub Release** with the tested application ZIP and update manifest already attached. Nothing becomes public until you publish the draft.
+
+To release an update:
+
+1. Increase `src/version.py`, then commit and push the finished changes, including the workflow.
+2. In GitHub Desktop, open **History**, right-click that commit, and choose **Create Tag**. Enter the matching unused version, such as `v1.1.2`, then **Push origin**.
+3. Wait for **Build Windows app** and **Prepare draft release** to succeed in Actions.
+4. Open the draft under **Releases**, review the two attached files and release notes, then publish as the latest stable release.
+
+If a tag was pushed before this automation existed, commit/push the workflow to main, then open **Actions > Build Windows app > Run workflow**, select **main**, enter the existing tag (for example `v1.1.2`) in **release_tag**, and run it. This builds that exact tag and prepares its draft without moving or recreating the tag. Leave release_tag blank for a build-only manual run.
+
+Tags must match the app version exactly. Published releases are never overwritten; use a new version for the next release. Rerunning a failed tag build can refresh its draft assets while preserving your release notes. No personal access token or manual upload is needed.
+
+For a manual release, download and extract the **WH3BattleLogger-release-files** Actions artifact and attach the two files inside it. Do not attach the outer artifact ZIP.
 
 
 For each public update, increase `src/version.py` and use the matching `vMAJOR.MINOR.PATCH` release tag (for example, `1.1.2` in the source and `v1.1.2` on GitHub). After building, `tools/package_update.py` produces these two files in `build/publish/`:
