@@ -5,9 +5,10 @@ from pathlib import Path
 from aggregate import Battle
 from logfile import read_log, load_key
 from paths import DATA_ROOT, resource_path
+from settings import load_report_options
 
 
-def convert(source, key, destination=None):
+def convert(source, key, destination=None, *, report_options=None):
     battle = None
     footer = None
     for record in read_log(source, key):
@@ -45,13 +46,14 @@ def convert(source, key, destination=None):
         footer['process_cpu_one_core_average_percent'] = cpu/wall*100
     summary['capture'] = footer
     output = Path(destination) if destination else Path(source).with_suffix('.html')
-    write_report(output, summary)
+    write_report(output, summary,report_options=report_options)
     return output
 
 
-def write_report(path, summary):
+def write_report(path, summary, *, report_options=None):
     from report_assets import assets_for
-    summary = dict(summary, report_filename=Path(path).stem, assets=assets_for(summary.get("units", [])))
+    options=load_report_options() if report_options is None else report_options
+    summary = dict(summary, report_filename=Path(path).stem, assets=assets_for(summary.get("units", []),icons=options.get('icons',True)))
     payload = json.dumps(summary, ensure_ascii=False, allow_nan=False, separators=(',', ':'))
     payload = payload.replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
     root = resource_path('src')

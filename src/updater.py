@@ -1,4 +1,5 @@
 """Verified, per-file GitHub updates with native progress and transient staging."""
+import base64
 import ctypes
 from ctypes import wintypes as w
 import hashlib
@@ -125,7 +126,7 @@ def download_ranges(asset, changed, stage, progress=lambda *a:None):
                     received+=len(chunk)
                     if received>end-start:raise ValueError('Update range exceeded its expected size.')
                     chunks.append(chunk)
-                    progress(f'Downloading changes: {(done+received)/1048576:.1f} / {total/1048576:.1f} MB',done+received,total)
+                    progress('Downloading changes',done+received,total,'bytes')
                 if received!=end-start:raise ValueError('Incomplete update download. Please try again.')
                 blob=b''.join(chunks)
         for item in items:
@@ -218,6 +219,17 @@ class UpdateChecker:
             if stage:shutil.rmtree(stage.parent,ignore_errors=True)
 
 
+
+def copy_install_file(source,target,progress,done,total,remaining):
+    size=source.stat().st_size;written=0
+    with source.open('rb') as reader,target.open('wb') as writer:
+        while chunk:=reader.read(256*1024):
+            writer.write(chunk);done+=len(chunk);written+=len(chunk)
+            progress('Installing changes',done,total,'bytes',source.name,remaining+(written<size))
+    shutil.copystat(source,target)
+    return done
+
+
 def install_files(stage,destination,progress=lambda *a:None):
     """Replace changed files only; transient rollback data is deleted on success."""
     stage,destination=Path(stage).resolve(),Path(destination).resolve()
@@ -238,19 +250,21 @@ def install_files(stage,destination,progress=lambda *a:None):
         changed=[p.relative_to(stage).as_posix() for p in app_files(stage)]
         expected=set(changed)
         removed=[p.relative_to(destination).as_posix() for p in app_files(destination) if p.relative_to(destination).as_posix() not in expected]
+    total=sum(safe_target(stage,name).stat().st_size for name in changed)
+    done=0
     journal=stage.parent/'rollback';journal.mkdir(exist_ok=True)
     moved=[];written=[]
     try:
         for i,name in enumerate(changed+removed):
-            progress('Installing changes…',i,len(changed)+len(removed))
+            progress('Installing changes',done,total,'bytes')
             target=safe_target(destination,name)
             if target.exists():
                 saved=safe_target(journal,name);saved.parent.mkdir(parents=True,exist_ok=True)
                 target.rename(saved);moved.append(name)
             if name in changed:
                 target.parent.mkdir(parents=True,exist_ok=True);written.append(name)
-                shutil.copy2(safe_target(stage,name),target)
-        progress('Installation complete',1,1)
+                done=copy_install_file(safe_target(stage,name),target,progress,done,total,max(0,len(changed)-i-1))
+        progress('Installation complete',done,total,'bytes')
     except Exception:
         for name in reversed(written):
             path=safe_target(destination,name)
@@ -279,13 +293,36 @@ def wait_for_exit(pid):
 def apply_update(destination,pid):
     stage=Path(sys.executable).resolve().parent;destination=Path(destination).resolve()
     if stage==destination or not (destination/'WH3BattleLogger.exe').is_file():raise ValueError('Invalid update destination.')
-    window=ProgressWindow(cancellable=False).start()
+    window=ProgressWindow().start()
     try:
         window.update('Finishing saving and closing the logger…')
         wait_for_exit(pid)
         install_files(stage,destination,window.update)
         subprocess.Popen([str(destination/'WH3BattleLogger.exe'),'--cleanup-update',str(stage.parent),'--wait-pid',str(os.getpid())],cwd=destination)
+    except Cancelled:
+        # install_files has restored every original file before this branch.
+        window.update('Update cancelled. Restarting the previous version…',check_cancel=False)
+        subprocess.Popen([str(destination/'WH3BattleLogger.exe')],cwd=destination)
+        cleanup_after_cancel(stage.parent,destination)
     finally:window.close()
+
+
+
+def cleanup_after_cancel(directory,installation):
+    # Older versions do not accept --cleanup-update. A hidden OS helper waits
+    # for this staged executable to exit before deleting only its staging folder.
+    directory=Path(directory).absolute();installation=Path(installation).resolve()
+    if directory.is_symlink() or directory.is_junction():raise ValueError('Unsafe cleanup directory.')
+    directory=directory.resolve()
+    if directory.parent not in {installation,Path(tempfile.gettempdir()).resolve()} or not re.fullmatch(r'wh3-logger-update-[a-zA-Z0-9_-]+',directory.name):
+        raise ValueError('Invalid cleanup directory.')
+    encoded_path=base64.b64encode(str(directory).encode('utf-8')).decode('ascii')
+    script=("$updateDirectory=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('"+encoded_path+"')); "
+            +f"Wait-Process -Id {os.getpid()} -ErrorAction SilentlyContinue; "
+            +"for($updateAttempt=0;$updateAttempt -lt 20;$updateAttempt++){try{Remove-Item -LiteralPath $updateDirectory -Recurse -Force -ErrorAction Stop;break}catch{Start-Sleep -Milliseconds 500}}")
+    command=base64.b64encode(script.encode('utf-16-le')).decode('ascii')
+    shell=Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/powershell.exe'
+    subprocess.Popen([str(shell),'-NoProfile','-NonInteractive','-WindowStyle','Hidden','-EncodedCommand',command],creationflags=0x08000000,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 
 
 def launch_installer(stage,destination):

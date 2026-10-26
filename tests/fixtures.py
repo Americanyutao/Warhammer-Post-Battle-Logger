@@ -81,8 +81,12 @@ class BattleFixture:
         m = self.memory
         self.module = dict(base=0x180000000, size=PROFILE['image_size'])
         self.engine = m.allocate(0x600)
-        self.context = m.allocate(0x480)
+        self.context = m.allocate(0x64600)
         self.roster = m.allocate(0x120)
+        settings=m.allocate(0x110)
+        m.q(self.roster+0x98,settings);m.write(settings+0xf4,struct.pack('<f',3600.))
+        m.write(settings+0x100,struct.pack('<f',1.))
+        m.write(self.roster+0xf8,struct.pack('<f',10.))
         self.script = m.allocate(0x500)
         self.my_army = m.allocate(0x180)
         self.enemy_army = m.allocate(0x180)

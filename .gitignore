@@ -12,3 +12,11 @@ report-corrections.json
 .env
 .env.*
 
+# Keep internal development/research Markdown on this computer.
+*.md
+!/README.md
+/local-notes/
+
+
+/settings.json
+/settings.json.tmp

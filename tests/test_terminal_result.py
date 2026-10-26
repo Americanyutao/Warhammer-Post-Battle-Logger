@@ -68,3 +68,38 @@ class TerminalResultTests(unittest.TestCase):
         self.assertIsNone(b.summary()['units'][0]['terminal_result'])
         frame['sim_s']=11;b.observe(frame)
         self.assertEqual(b.summary()['units'][0]['final_status'],'Retreated')
+
+    def test_results_screen_confirms_at_frozen_battle_time(self):
+        # Real rev16 capture: death fields are incomplete during combat; the
+        # final models arrive in phase8, and both results samples have equal t.
+        f=BattleFixture(1,0);frame=f.reader.normalized(f.sample());b=Battle()
+        frame.update(sim_s=250.,battle_phase=5)
+        frame['units'][0].update(self.unit(result_hp=0,result_models=120,result_exit_reason=0))
+        b.observe(frame);self.assertIsNone(b.summary()['units'][0]['terminal_result'])
+        for _ in range(2):
+            final=copy.deepcopy(frame);final.update(sim_s=255.30638122558594,battle_phase=8)
+            final['units'][0].update(result_models=0)
+            b.observe(final)
+            unit=b.summary()['units'][0]
+            self.assertEqual(unit['final_status'],'Dead')
+            self.assertEqual((unit['terminal_result']['hp'],unit['terminal_result']['models']),(0,0))
+
+    def test_single_saved_results_tick_confirms_retreat(self):
+        f=BattleFixture(1,0);frame=f.reader.normalized(f.sample());b=Battle()
+        frame.update(sim_s=505.0216064453125,battle_phase=8)
+        frame['units'][0].update(self.unit(),hp_cached=None,models=None)
+        b.observe(frame);unit=b.summary()['units'][0]
+        self.assertEqual(unit['final_status'],'Retreated')
+        self.assertEqual((unit['terminal_result']['hp'],unit['terminal_result']['models']),(350,13))
+
+    def test_results_phase_still_rejects_unpopulated_or_contradictory_records(self):
+        for change in [dict(result_initial_hp=0),dict(result_initial_models=0),dict(result_models=121),
+                       dict(result_hp=None),dict(result_hp=0),dict(result_exit_reason=5),
+                       dict(result_exit_reason=4),dict(result_exit_reason=0),dict(alive=True),dict(left_battlefield=False)]:
+            self.assertIsNone(resolve(self.unit(**change),None,10,results_phase=True)[0],change)
+
+    def test_paused_combat_does_not_use_results_confirmation(self):
+        f=BattleFixture(1,0);frame=f.reader.normalized(f.sample());b=Battle()
+        frame.update(sim_s=250.,battle_phase=5);frame['units'][0].update(self.unit())
+        for _ in range(3):b.observe(frame)
+        self.assertIsNone(b.summary()['units'][0]['terminal_result'])

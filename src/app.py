@@ -152,7 +152,7 @@ class App:
             fmt = lambda v: 'unknown' if v is None else f'{v:,.2f}'
             lines += ['SAMPLED TOTALS', 'Calculated damage taken: '+fmt(row.get('damage_taken_estimate')),
                 'Calculated healing received: '+fmt(row.get('healing_received_estimate')),
-                f"Rallies / landings observed: {row['rallies_observed']} / {row['landings_observed']}",
+                f"Rallies observed: {row['rallies_observed']}",
                 'Damage while firing*: '+str(row['damage_firing_estimate']),
                 'Damage in other states*: '+str(row['damage_other_state_estimate']),
                 'Unclassified damage: '+str(row['damage_ambiguous']),

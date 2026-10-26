@@ -20,8 +20,14 @@ def frames(units=80, seconds=60, step=1.):
             sources={c:dict(enemy=damage if c==('missile' if i%3==0 else 'melee') else 0,self=0,ally=0)
                      for c in ('ability','melee','missile','charge','melee_collision','other')}
             hp=max(0,8000-damage*.6)
+            buffed=2<t<seconds*.8
             rows.append(dict(id=str(i), uid=i, name=('Zombies' if i%2 else 'Skeleton Spearmen')+f' {i+1}',
                 army=str(i%2), alliance=i%2+1, side='Allied' if i%2==0 else 'Enemy', controlled=i%2==0,
+                active_effects=([dict(key='synthetic-buff',name='Example buff',polarity='positive')] if 2<t<seconds*.8 else [])+([dict(key='synthetic-debuff',name='Example debuff',polarity='negative')] if seconds*.4<t<seconds*.9 else []),
+                statline=dict(hp=int(hp),hp_max=8000,models=max(0,120-int((8000-hp)/67)),models_max=120,
+                    armour=45 if buffed else 15,leadership=60,speed=50,melee_attack=95 if buffed else 75,
+                    melee_defence=50,weapon_strength=410,charge_bonus=35,spell_resistance=20,
+                    missile_resistance=10,fire_resistance=0,fire_weakness=20,physical_resistance=15,ward_save=5),
                 damage=damage, damage_by_source=sources, damage_sources_consistent=True,
                 gold_damage=int(damage*.18), kills=int(damage/55), hp_cached=int(hp),
                 hp_max_cached=8000, models=max(0,120-int((8000-hp)/67)), models_initial=120,

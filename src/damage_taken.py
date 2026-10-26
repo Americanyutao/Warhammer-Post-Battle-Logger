@@ -3,6 +3,8 @@
 C = current HP + remaining healing budget. Budget-spending healing leaves C
 unchanged; damage lowers it. Scripted healing without budget spending, maximum
 HP changes and budget modifiers break that conservation assumption.
+HP is cached separately from the native budget, so small timing/rounding
+fluctuations are possible. These are estimates, not incoming/healing events.
 """
 import math
 
@@ -16,11 +18,11 @@ class DamageTaken:
         self.basis = None
         self.previous_budget = None
         self.invalid = None
-        self.amount = self.fraction = self.ceiling = self.as_of = self.healing = None
+        self.amount = self.fraction = self.ceiling = self.as_of = self.healing = self.remaining_budget = None
         self.reason = 'Waiting for an initial healing ceiling.'
 
     def observe(self, t, unit):
-        self.amount = self.fraction = self.ceiling = self.as_of = self.healing = None
+        self.amount = self.fraction = self.ceiling = self.as_of = self.healing = self.remaining_budget = None
         if unit.get('healing_budget_unlimited') is True:
             self.invalid = 'Healing budget is unlimited; budget spending cannot offset healing.'
         if self.invalid:
@@ -63,6 +65,8 @@ class DamageTaken:
                 hp=maximum if summoned else hp if valid(hp) else None,
                 maximum_hp=maximum if valid(maximum) and maximum > 0 else None, method=method,
                 assumed_summon_start=summoned)
+            self.basis['initial_budget_hp'] = (self.basis['ceiling_hp'] - self.basis['hp']
+                if self.basis['hp'] is not None else None)
         b = self.basis
         if b['maximum_hp'] is None and valid(maximum) and maximum > 0:
             b['maximum_hp'] = maximum
@@ -78,9 +82,12 @@ class DamageTaken:
         self.amount = max(0, b['ceiling_hp'] - ceiling)
         self.fraction = self.amount / b['maximum_hp'] if b['maximum_hp'] else None
         self.ceiling, self.as_of = ceiling, t
-        if valid(hp) and b['maximum_hp'] and b['hp'] is not None and abs(b['hp']-b['maximum_hp']) <= 1:
-            healing = hp + self.amount - b['maximum_hp']
+        if valid(hp) and b['hp'] is not None:
+            healing = hp + self.amount - b['hp']
             self.healing = max(0,healing) if healing >= -1 else None
+            initial_budget = b.get('initial_budget_hp')
+            if self.healing is not None and valid(initial_budget):
+                self.remaining_budget = max(0,initial_budget-self.healing)
         self.reason = 'Calculated since first valid observation; assumes healing spends an equal HP budget and maximum HP/capacity remain unchanged.'
         if b.get('assumed_summon_start'):
             self.reason = 'Calculated from an assumed full-health summon starting ceiling of 1.75 × maximum HP, including losses before its first sample; assumes normal 75% healing capacity and equal budget spending.'
@@ -88,7 +95,8 @@ class DamageTaken:
     def summary(self):
         return dict(damage_taken_estimate=self.amount, damage_taken_fraction=self.fraction,
             healing_received_estimate=self.healing,
-            healing_received_reason=('Calculated as current HP + calculated damage taken - initial maximum HP. With a full-health baseline this equals budget spent; it cannot independently detect unbudgeted healing.' if self.healing is not None else
-                'Requires valid calculated damage taken, current HP and a full-health starting baseline.'),
+            healing_budget_remaining_calculated=self.remaining_budget,
+            healing_received_reason=('Calculated as current HP + calculated damage taken - starting HP, using the captured deployment baseline when available. This estimates healing-budget spending, not an independent event counter.' if self.healing is not None else
+                'Requires valid calculated damage taken, current HP and a recorded starting HP.'),
             damage_taken_calculation=dict(baseline=self.basis.copy() if self.basis else None,
                 current_ceiling_hp=self.ceiling, as_of_s=self.as_of, reason=self.reason))

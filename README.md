@@ -27,10 +27,14 @@ Compare unit performance, explore damage breakdowns, and inspect graphs of healt
 ## Download and run
 
 1. Open the [latest release](https://github.com/Americanyutao/Warhammer-Post-Battle-Logger/releases/latest).
-2. Under **Assets**, download the Windows application ZIP. Do not download the **Source code** archives.
+2. Under **Assets**, download **WH3BattleLogger-Windows-x64.zip**, circled below. Do not download the **Source code** archives.
 3. Right-click the ZIP and choose **Extract All**. Extract it into a folder you can write to.
 4. Open the extracted folder and run **WH3BattleLogger.exe**. Keep the **_internal** folder beside the executable.
 5. Start the logger before your battle and leave it running through the results screen.
+
+![Download the circled WH3BattleLogger-Windows-x64.zip from the release assets](docs/screenshots/download-release.png)
+
+**Do not download WH3BattleLogger-update.json.gz manually.** The app reads this small update index automatically to find and download future updates.
 
 **No application window will appear.** Look for the **LOG** icon in the Windows notification tray, including the hidden icons menu next to the clock.
 
@@ -47,7 +51,7 @@ The packaged application does not require Python. It requires **64-bit Windows**
 
 Right-click the **LOG** tray icon and choose **Check for updates**. The logger compares its installed version with the latest stable GitHub Release. It checks only when you choose this option; it does not automatically check or install updates.
 
-From v1.1.2 onward, the logger checks which application files changed and downloads only those portions of the release ZIP. The confirmation shows the actual download size. A progress window shows checking, downloading and installation; you can cancel before installation. Recording continues during the download. The logger verifies each downloaded file and tests the new application, then asks before saving, closing, installing and restarting. **Install updates between battles** so your recording is not interrupted.
+From v1.1.2 onward, the logger checks which application files changed and downloads only those portions of the release ZIP. The confirmation shows the actual download size. In v2.0.0, an Explorer-style progress window shows the percentage, transferred/installed MB, speed, estimated time remaining and current file. Pause/resume and Cancel are available during transfer and installation; cancelling installation restores and restarts the previous version. Recording continues during the download. The logger verifies each downloaded file and tests the new application, then asks before saving, closing, installing and restarting. **Install updates between battles** so your recording is not interrupted.
 
 Your **captures** folder, existing reports and **logger.key** stay in place. Successful updates keep one installed copy: temporary replacement files are removed, and backups created by older logger versions are cleaned up. Temporary copies of changed files are used only during installation to recover from a failed copy.
 
@@ -59,11 +63,13 @@ Your **captures** folder, existing reports and **logger.key** stay in place. Suc
 
 - **Battle overview:** victory or defeat, with the result classification when captured.
 - **Unit comparisons:** damage dealt, gold damage, kills, friendly fire, self damage, calculated damage taken, calculated healing received, HP and models.
-- **Damage breakdowns:** melee, missiles and spells, direct damage abilities and effects, plus separate source details.
+- **Damage breakdowns:** Direct damage, Melee, Missiles and Other, with separate enemy, friendly-fire and self-damage HP totals. Hover column headings for short explanations.
 - **Ranged statistics:** initial primary and secondary ammunition and the net decrease in each ammunition pool.
 - **Unit graphs:** health, models, damage, ammunition, fatigue state and points, leadership, healing information and elevation.
 - **Movement and occupancy:** sampled paths and time spent in different areas, using a shared map frame for the battle.
 - **Winds of Magic:** usable winds and reserves over time.
+- **Unit statline:** scrub the shared Statline/effect timeline to inspect current HP, models, armour, leadership, speed, melee attack/defence, weapon strength, charge bonus and resistances in a unit-card panel. Each recording tick retains its full snapshot, including temporary stat changes. Fire resistance and weakness stay separate; missing values show a dash. Older captures cannot recover these newly recorded stats.
+- **Buffs and debuffs:** a timeline below Winds in each unit's workspace, with separate rows for observed effect instances, including same-name spells and bound spells. Bars connect consecutive detections. Hover a name or bar for listed effects only: stat modifiers, healing and damage rates from the game files. Rates follow recorded intensity and battle scaling; they are configured values, not measured damage or healing. Captures without those readings show marked base values. The full exported ability/phase reference is bundled for offline lookup; unnamed or unknown effects get readable labels instead of raw game IDs. Green indicates buffs, red debuffs and gold other effects.
 - **Activity:** time spent in observed activities and states, idle time after rallying, and sampled rally and landing counts.
 
 Choose allied, enemy or all units. Unit graphs can also be opened in separate mini windows, with up to four pop-outs.
@@ -73,6 +79,10 @@ Choose allied, enemy or all units. Unit graphs can also be opened in separate mi
 The logger reads supported game data from the running game's memory without modifying it. It is an external application rather than a Steam Workshop mod.
 
 Sampling defaults to once per second. Deployment supplies initial unit values, while combat timelines begin when the battle starts. Duration measurements use battle simulation time, so pauses and speed changes do not count as normal-speed elapsed time.
+
+New captures use the battle countdown, with deployment providing the initial reading. A 60-minute timer at 59 minutes remaining corresponds to 60 elapsed seconds. Displayed times round to the nearest whole second; fractional timestamps are retained for correct spacing. Earlier captures use the saved deployment clock as an estimate when available.
+
+Timeline positions use the in-game clock: at 4× speed, readings taken one real second apart appear about four battle seconds apart. Paused readings share one timestamp. Buff/debuff bars assume an effect stayed active between consecutive detections. An absent or unreadable tick, or a known recording gap, breaks the bar. Brief effects between readings can still be missed. Internal effects hidden from the game's UI may not appear. Older captures do not contain this new effect data.
 
 Reports and encrypted recordings are saved in the **captures** folder beside the application:
 
@@ -85,8 +95,8 @@ Reports and encrypted recordings are saved in the **captures** folder beside the
 Some statistics are sampled observations or calculations rather than complete event histories. Events between samples may be missed.
 
 - **Ammunition:** compares beginning and ending ammunition. Replenishment is not accounted for separately, and dead models take their remaining ammunition with them. The decrease is not a verified count of projectiles fired.
-- **Healing and damage taken:** calculated using HP and healing-budget data where available. Healing-cap changes and other capacity changes can affect the calculation. The base healing budget is 75% of maximum HP; healing-cap increases multiply that base. For example, +100% increased healing cap gives 2x75 = 150% of maximum HP as healing budget.
-- **Damage categories:** follow the game's recorded source categories. Some spells, including vortex effects, can appear under missiles and spells.
+- **Healing and damage taken:** estimates using starting HP and the recorded healing allowance, including units that enter battle wounded. Deployment provides the baseline when captured. Mid-battle capacity changes, transformations and healing outside the normal budget can distort these estimates. Remaining healing allowance is read directly from the game.
+- **Damage categories:** follow the game's recorded source categories. Some spells, including vortex effects, can appear under Missiles. Gold damage currently has an enemy total only; gold by damage type and friendly-fire gold are unavailable.
 - **Lords and heroes:** the default unit value is 500 gold per level. Treat trade comparisons using that value as estimates.
 - **Movement, rallies and landings:** derived from sampled positions and state changes.
 - **Barrier statistics:** remain work in progress.
@@ -132,7 +142,7 @@ GitHub Actions builds and tests on pushes, pull requests and manual runs. Pushin
 To release an update:
 
 1. Increase `src/version.py`, then commit and push the finished changes, including the workflow.
-2. In GitHub Desktop, open **History**, right-click that commit, and choose **Create Tag**. Enter the matching unused version, such as `v1.1.2`, then **Push origin**.
+2. In GitHub Desktop, open **History**, right-click that commit, and choose **Create Tag**. Enter the matching unused version, such as `v2.0.0`, then **Push origin**.
 3. Wait for **Build Windows app** and **Prepare draft release** to succeed in Actions.
 4. Open the draft under **Releases**, review the two attached files and release notes, then publish as the latest stable release.
 
@@ -143,7 +153,7 @@ Tags must match the app version exactly. Published releases are never overwritte
 For a manual release, download and extract the **WH3BattleLogger-release-files** Actions artifact and attach the two files inside it. Do not attach the outer artifact ZIP.
 
 
-For each public update, increase `src/version.py` and use the matching `vMAJOR.MINOR.PATCH` release tag (for example, `1.1.2` in the source and `v1.1.2` on GitHub). After building, `tools/package_update.py` produces these two files in `build/publish/`:
+For each public update, increase `src/version.py` and use the matching `vMAJOR.MINOR.PATCH` release tag (for example, `2.0.0` in the source and `v2.0.0` on GitHub). After building, `tools/package_update.py` produces these two files in `build/publish/`:
 
 - **`WH3BattleLogger-Windows-x64.zip`** — the complete, clean app for new users and older updaters.
 - **`WH3BattleLogger-update.json.gz`** — the compressed inventory of version, file sizes, checksums and byte locations used for smaller updates.

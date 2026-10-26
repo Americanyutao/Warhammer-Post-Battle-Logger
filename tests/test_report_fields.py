@@ -69,7 +69,7 @@ class ReportFieldsTests(unittest.TestCase):
         e.observe(0,dict(hp_cached=6000,hp_max_cached=8000,healing_budget_remaining_hp=6000))
         e.observe(1,dict(hp_cached=6500,hp_max_cached=8000,healing_budget_remaining_hp=5500))
         self.assertEqual(e.amount,0)
-        self.assertIsNone(e.healing)
+        self.assertEqual(e.healing,500)
 
     def test_unit_value_reference_keeps_ambiguous_lord_mount_costs(self):
         refs=json.loads((P/'assets/unit-values.json').read_text(encoding='utf-8'))

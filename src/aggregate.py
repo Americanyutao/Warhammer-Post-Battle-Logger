@@ -3,6 +3,11 @@ import copy
 import math
 from damage_taken import DamageTaken
 from terminal_result import resolve
+from effects import EffectTimeline
+from statline import StatlineTimeline, unit_values, unit_state
+from activities import ActivityTimeline
+from spatial import SpatialTimeline
+from recharge import RechargeStats
 
 STATES = ('firing', 'melee', 'idle', 'walking', 'running', 'flying', 'grounded', 'routing', 'shattered', 'withdrawing', 'under_missile', 'out_of_opponents_vision', 'retreating_combined', 'idle_after_rally')
 HISTORY = ('hp_cached', 'hp_max_cached', 'models', 'damage', 'gold_damage', 'barrier_hp',
@@ -12,8 +17,10 @@ HISTORY = ('hp_cached', 'hp_max_cached', 'models', 'damage', 'gold_damage', 'bar
            'healing_budget_ceiling_hp', 'healing_budget_remaining_fraction',
            'primary_ammo', 'secondary_ammo', 'primary_ammo_max', 'secondary_ammo_max', 'leadership', 'fatigue_points','fatigue_state_native')
 UNSUPPORTED = {
+    'gold_damage_by_source': 'The verified result writer retains enemy gold total and HP source/relationship counters, but no gold source counters. HP shares cannot reconstruct gold shares across targets with different gold/HP weights.',
+    'friendly_gold_damage': 'The verified result writer discards gold credit for self/ally relationships; no retained friendly-gold counter is bound. Enemy gold remains separate.',
     'charge_time': 'No verified charging field in the bounded lookup.',
-    'healing_applied': 'Healing received is calculated from HP + calculated damage taken - starting maximum HP, only with a full-health baseline. With the ceiling-based damage calculation it equals budget spent, not an independent actual-healing measurement.',
+    'healing_applied': 'Healing received is calculated from current HP + calculated damage taken - starting HP, using deployment values when recorded. This estimates healing-budget spending; it is not an independent actual-healing event counter.',
     'exact_damage_taken': 'Calculated damage taken uses the initial minus current unclamped healing ceiling. It assumes healing spends an equal budget; scripted healing without budget spending, capacity/max-HP changes and transformations can invalidate it. It is not a native incoming-damage counter.',
     'healing_cap_legacy': 'The native remaining healing budget is read directly for all model counts. The clamped UI ceiling is retained separately.',
     'winds_generated_and_spent': 'Pool changes conflate generation, drainage and spending. Recharge transfers reserves to power.',
@@ -23,7 +30,7 @@ UNSUPPORTED = {
     'attacker_target_damage_matrix': 'Native per-opponent history mixes incoming/outgoing damage, rotates and prunes. It is not a directional lifetime ledger.',
     'orders_per_minute': 'Target changes do not count repeated or cancelled commands.',
     'unit_cost_and_efficiency': 'Exact battle purchase value is not bound natively. Trade uses a manual/captured value, or the report default of 500 gold per character level for lords/heroes (level 1 assumed if missing), otherwise an unambiguous base multiplayer database price. Native gold damage is unchanged.',
-    'wavering_crumbling_unstable': 'Raw morale enum logged; native enum meanings and effect lists need verification.',
+    'wavering_crumbling_unstable': 'Raw morale enum logged; wavering/crumbling/unstable interpretations remain unverified. Sampled active effects are recorded separately.',
     'limbering_climbing_working_ready': 'No verified fields here; limbering is not folded into walking.',
     'victory_and_result_boundary': 'Victory/defeat/draw is read only when the native results phase is observed. Victory countdown and pursuit boundaries are not bound; an early capture end leaves the outcome unknown.',
 }
@@ -66,6 +73,8 @@ class Battle:
         self.initial_units, self.initial_armies = {}, {}
         self.fatigue_rules = None
         self.keep_history, self.max_gap = keep_history, max_gap
+        self.time_offset=0.
+        self.time_reference=dict(source='sample_clock',battle_origin_known=False)
         self.performance = dict(read_ms_total=0., read_ms_max=0., calls_total=0, bytes_total=0, working_set_mib_max=0.)
 
     def observe(self, frame):
@@ -77,6 +86,24 @@ class Battle:
             self.missing_clock += 1
             self.break_continuity()
             return
+        if self.samples==0:
+            clock=frame.get('battle_clock') or {}
+            if clock.get('source')=='native_battle_ui_clock':
+                deployment_clock=(frame.get('deployment_baseline') or {}).get('battle_clock')
+                initial_clock=deployment_clock or clock
+                initial_elapsed=deployment_clock.get('elapsed_s') if deployment_clock else 0.
+                if number(initial_elapsed) and 0<=initial_elapsed<=t:self.time_offset=initial_elapsed
+                self.time_reference=dict(source='native_battle_ui_clock',battle_origin_known=True,
+                    initial_limit_s=initial_clock.get('limit_s'),
+                    initial_remaining_s=initial_clock.get('remaining_s') if deployment_clock else clock.get('limit_s'),
+                    deployment_elapsed_s=self.time_offset)
+            elif self.metadata.get('source')=='external-native' and self.metadata.get('collector_revision',0)<=13:
+                baseline=(frame.get('deployment_baseline') or {}).get('sim_s')
+                if number(baseline) and 0<=baseline<=t:
+                    self.time_offset=baseline
+                    self.time_reference=dict(source='legacy_deployment_clock',battle_origin_known=True,
+                        precision='Estimated from the last deployment observation; the old capture does not contain the UI countdown.')
+        t-=self.time_offset
         if self.previous_t is not None and t < self.previous_t: raise ValueError('Battle clock moved backwards; start a new battle.')
         dt = t - self.previous_t if self.previous_t is not None else 0
         if dt == 0 and self.previous_t is not None: self.paused_samples += 1
@@ -134,7 +161,12 @@ class Battle:
                     last_observed={}, damage_source_mismatches=0, last_damage_calculation=None,
                     initial_models_observed=None, initial_models_maximum=None, fatigue_points_peak=None,
                     ever_flying=False, ammo={}, taken_estimator=DamageTaken(), history_segment=0, position_segment=0,
-                    history=Series() if self.keep_history else None)
+                    history=Series() if self.keep_history else None,
+                    effect_history=EffectTimeline() if self.keep_history else None,
+                    activity_history=ActivityTimeline() if self.keep_history else None,
+                    spatial_history=SpatialTimeline() if self.keep_history else None,
+                    statline_history=StatlineTimeline(unit_values(initial or {})
+                        if self.time_reference.get('battle_origin_known') else None,unit_state(initial or {})) if self.keep_history else None)
                 if initial:
                     row = self.units[uid]
                     row['taken_estimator'].observe(t,initial)
@@ -171,7 +203,8 @@ class Battle:
                     for key, value, operation in (('xmin',xyz[0],min), ('xmax',xyz[0],max),
                                                    ('zmin',xyz[2],min), ('zmax',xyz[2],max)):
                         self.movement_bounds[key] = operation(self.movement_bounds[key], value)
-            terminal, candidate = resolve(unit,row.get('_terminal_candidate') if dt <= self.max_gap else None,t)
+            terminal, candidate = resolve(unit,row.get('_terminal_candidate') if dt <= self.max_gap else None,t,
+                results_phase=frame.get('battle_phase')==8)
             row['_terminal_candidate'] = candidate
             row['terminal_result'] = terminal
             effective = dict(unit)
@@ -216,6 +249,15 @@ class Battle:
                     row['damage_other_state_estimate'] += delta
                 else: row['damage_ambiguous'] += delta
             row.update(last=copy.deepcopy(unit), previous=copy.deepcopy(unit), last_s=t, fresh=True)
+            if row['effect_history'] is not None and 'active_effects' in unit:
+                row['effect_history'].observe(t,unit['active_effects'],row['history_segment'],frame.get('effect_damage_scale'))
+            if row['statline_history'] is not None and 'statline' in unit:
+                row['statline_history'].observe(t,unit_values(unit),row['history_segment'],state=unit_state(unit,terminal))
+            if row['activity_history'] is not None:
+                row['activity_history'].observe(t,{k:unit.get(k) for k in STATES},row['history_segment'])
+            if row['spatial_history'] is not None:
+                row['spatial_history'].observe(t,dict(unit,damage_taken_estimate=row['taken_estimator'].amount,
+                    healing_received_estimate=row['taken_estimator'].healing),row['history_segment'],row['position_segment'])
             if row['history']:
                 row['history'].add(dict(t=t, segment=row['history_segment'], position_segment=row['position_segment'],
                                        **{k:unit.get(k) for k in HISTORY},
@@ -228,17 +270,26 @@ class Battle:
             if uid not in present:
                 row.update(fresh=False, previous=None, _terminal_candidate=None)
                 row['missing_samples'] += 1
+                if row['effect_history'] is not None and row['effect_history'].samples:
+                    row['effect_history'].observe(t,None)
+                if row['statline_history'] is not None and row['statline_history'].samples:
+                    row['statline_history'].observe(t,None,row['history_segment'],state=dict(recorded=False))
+                if row['activity_history'] is not None:
+                    row['activity_history'].observe(t,None,row['history_segment'])
+                if row['spatial_history'] is not None:
+                    row['spatial_history'].observe(t,None,row['history_segment'],row['position_segment'])
         for army in frame.get('armies', []):
             key = str(army['id'])
             if key not in self.armies:
                 self.armies[key] = dict(first=copy.deepcopy(self.initial_armies.get(key,army)), last={}, last_s=None, segment=0,
-                                       history=Series() if self.keep_history else None)
+                                       history=Series() if self.keep_history else None,recharge_stats=RechargeStats())
             row = self.armies[key]
             new_segment = self.previous_t is None or (dt > 0 and not continuous) or row['last_s'] != self.previous_t
             if new_segment:
                 row['segment'] += 1
             row['last'] = copy.deepcopy(army)
             row['last_s'] = t
+            row['recharge_stats'].observe(t,army,row['segment'])
             if row['history']: row['history'].add(dict(t=t, segment=row['segment'], **army))
         self.previous_t = t
 
@@ -251,7 +302,11 @@ class Battle:
     def summary(self):
         rows = []
         for row in self.units.values():
-            item = {k:copy.deepcopy(v) for k,v in row.items() if k not in ('history', 'previous', 'taken_estimator','last_damage_calculation','_terminal_candidate')}
+            item = {k:copy.deepcopy(v) for k,v in row.items() if k not in ('history', 'effect_history', 'statline_history', 'activity_history', 'spatial_history', 'previous', 'taken_estimator','last_damage_calculation','_terminal_candidate')}
+            item['effect_timeline'] = row['effect_history'].summary() if row['effect_history'] is not None else None
+            item['statline_timeline'] = row['statline_history'].summary() if row['statline_history'] is not None else None
+            item['activity_timeline'] = row['activity_history'].summary() if row['activity_history'] is not None else None
+            item['spatial_timeline'] = row['spatial_history'].summary() if row['spatial_history'] is not None else None
             item.update(row['taken_estimator'].summary())
             terminal=row['last'].get('alive') is False or row['last'].get('left_battlefield') is True
             if terminal and item['damage_taken_estimate'] is None and not row['taken_estimator'].invalid and row['last_damage_calculation']:
@@ -270,7 +325,7 @@ class Battle:
                 'Withdrawing' if last.get('withdrawing') is True else 'Routing' if last.get('routing') is True else
                 'Alive' if last.get('alive') is True else 'Unknown')
             rows.append(item)
-        armies = [dict(first=r['first'], last=r['last'], history=r['history'].points if r['history'] else []) for r in self.armies.values()]
+        armies = [dict(first=r['first'], last=r['last'], recharge_stats=r['recharge_stats'].summary(),history=r['history'].points if r['history'] else []) for r in self.armies.values()]
         name_counts, name_indices = {}, {}
         for item in rows:
             key = item['side'], item['name']
@@ -280,6 +335,8 @@ class Battle:
             name_indices[key] = name_indices.get(key,0)+1
             item['display_name'] = item['name']+(f" #{name_indices[key]}" if name_counts[key]>1 else '')
         return dict(schema=1, metadata=self.metadata, start_s=self.start_t, end_s=self.end_t,
+            timeline_start_s=0. if self.time_reference['battle_origin_known'] else self.start_t,
+            time_reference=dict(self.time_reference),
             samples=self.samples, gaps=self.gaps, unreadable_units=self.unreadable, missing_clock=self.missing_clock,
             paused_samples=self.paused_samples, elevation_min=self.elevation_min,
             movement_bounds=self.movement_bounds.copy() if self.movement_bounds else None,

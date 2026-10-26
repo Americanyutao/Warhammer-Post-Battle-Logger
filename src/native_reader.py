@@ -5,6 +5,8 @@ import struct
 from inspector_reader import InspectorReader, InspectorUnit, InspectorSample
 from memory import ReadError
 from result_types import TYPES, confirmed_label
+from memory import valid_pointer
+from statline_reader import StatlineReader
 
 
 @dataclass(frozen=True)
@@ -21,7 +23,40 @@ def finite(value):
     return isinstance(value, (int, float)) and math.isfinite(value)
 
 
-class LoggerReader(InspectorReader):
+class LoggerReader(StatlineReader,InspectorReader):
+    def effect_damage_scale(self, token):
+        b=self.profile.get('effect_fields',{})
+        offset=b.get('settings_damage_scale_offset')
+        if offset is None or not token:return None
+        try:
+            settings=self.ptr(token[2]+self.profile['battle_clock_fields']['settings_offset'])
+            value=struct.unpack('<f',self.read(settings+offset,4))[0]
+            return value if finite(value) and value>=0 else None
+        except (ReadError,KeyError):return None
+
+    def battle_clock(self,token):
+        b=self.profile.get('battle_clock_fields')
+        if not b or not token:return None
+        _,context,roster,_=token
+        try:
+            elapsed=struct.unpack('<f',self.read(roster+b['elapsed_offset'],4))[0]
+            if not finite(elapsed) or not 0<=elapsed<=7*24*3600:return None
+        except ReadError:return None
+        limit=None
+        try:
+            override=self.read(context+b['override_flag_offset'],1)[0]
+            if override==0:
+                settings=self.ptr(roster+b['settings_offset'])
+                value=struct.unpack('<f',self.read(settings+b['limit_offset'],4))[0]
+                if finite(value) and 0<value<=7*24*3600:limit=value
+            elif override==1:
+                settings=self.ptr(context+b['override_pointer_offset'])
+                value=self.uint(settings+b['override_limit_ms_offset'])//1000
+                if 0<value<=7*24*3600:limit=value
+        except ReadError:pass
+        return dict(source='native_battle_ui_clock',elapsed_s=elapsed,limit_s=limit,
+            remaining_s=max(0.,limit-elapsed) if limit is not None else None)
+
     def battle_phase(self, token):
         binding = self.profile.get('workspace_fields')
         return self.uint(token[2]+binding['phase_offset']) if token and binding else None
@@ -29,6 +64,7 @@ class LoggerReader(InspectorReader):
     def sample(self):
         token = self.roots()
         phase = self.battle_phase(token)
+        self.read_statline_rules(token)
         sample = super().sample()
         if sample.token and sample.token != token:
             raise ReadError('Battle phase changed during sampling; retrying.')
@@ -147,6 +183,45 @@ class LoggerReader(InspectorReader):
             return key
         except (ReadError,UnicodeError):return None
 
+    def active_effects(self, address, eligible, active):
+        """Read the event-maintained UI list, including passives. None != empty.
+
+        The game's add/remove callbacks maintain this list without a selection
+        gate. UI-hidden internal phases are excluded by the game itself.
+        Never call native code or infer continued presence between observations.
+        """
+        b=self.profile.get('effect_fields')
+        if not b or eligible is not True or active is not True:return None
+        try:
+            header=self.read(address+b['count_offset'],12)
+            count,data=struct.unpack('<IQ',header)
+            if count>256 or (count and not valid_pointer(data)):return None
+            raw=self.read(data,count*b['stride']) if count else b''
+            result=[]
+            for offset in range(0,len(raw),b['stride']):
+                key_address,phase,ability=struct.unpack_from('<QQQ',raw,offset)
+                if not valid_pointer(phase):return None
+                phase_key=self.byte_string(phase+b['phase_key_offset'],256)
+                ability_key=self.byte_string(key_address,256)
+                if not phase_key or not all(c.isalnum() or c in '_-.' for c in phase_key):return None
+                if not ability_key or not all(c.isalnum() or c in '_-.' for c in ability_key):return None
+                polarity=struct.unpack('<i',self.read(phase+b['phase_polarity_offset'],4))[0]
+                # Match CcoBattleUnitEffect.Name's precedence exactly.
+                name_pointer=self.ptr(ability+b['ability_name_offset'],nullable=True) if ability else 0
+                if not ability:name_pointer=self.ptr(phase+b['phase_name_offset'],nullable=True)
+                name=self.unicode_string(self.read(name_pointer,16)) if name_pointer else ability_key
+                intensity=struct.unpack_from('<f',raw,offset+b['intensity_offset'])[0] if 'intensity_offset' in b else None
+                result.append(dict(key=ability_key+':'+phase_key,name=name or ability_key,
+                    polarity={0:'positive',1:'negative'}.get(polarity,'other'),
+                    instance_id=f'effect-{key_address:x}',
+                    intensity=intensity if finite(intensity) and intensity>=0 else None))
+            # A changed array/entry is an unknown reading, never false removal.
+            if header!=self.read(address+b['count_offset'],12):return None
+            if count and raw!=self.read(data,len(raw)):return None
+            if self.read(address+0x6f4,1)!=b'\x01' or self.read(address+0x6fb,1)!=b'\x01':return None
+            return result
+        except (ReadError,UnicodeError,ValueError):return None
+
     def decorate_unit(self, sample, block):
         decorated = super().decorate_unit(sample, block)
         values = {}
@@ -172,6 +247,7 @@ class LoggerReader(InspectorReader):
         # Cached combat fields are refreshed only for eligible active UI units.
         values['cache_eligible'] = self.flag(block[0x6f4 - 0x610])
         values['cache_active'] = self.flag(block[0x6fb - 0x610])
+        values['active_effects'] = self.active_effects(sample.address,values['cache_eligible'],values['cache_active'])
         values['portrait_path'] = self.unit_portrait_path(sample,values['unit_key'],values['cache_active'] is True)
         values['hidden_raw'] = self.flag(block[self.o['unit_hidden'] - 0x610])
         values['damage'] = values['kills'] = values['gold_damage'] = None
@@ -265,6 +341,7 @@ class LoggerReader(InspectorReader):
         values['grounded'] = not values['flying'] if isinstance(values.get('flying'), bool) else None
         if extra and sample.alive is True and values['cache_active'] is True and values['cache_eligible'] is True:
             values['awaiting_order_after_rally_raw'] = self.flag(block[extra['awaiting_rally_offset']-0x610])
+        values['statline']=self.statline_unit(sample.address,values,block)
         return LoggerUnit(**vars(decorated), values=values)
 
     def normalized(self, sample):
@@ -314,7 +391,11 @@ class LoggerReader(InspectorReader):
         phase = self.battle_phase(sample.token)
         if phase != sample.battle_phase: raise ReadError('Battle phase changed while normalizing; retrying.')
         result, rules = self.battle_result(sample.token,phase), self.fatigue_rules(sample,native_ids)
-        if self.roots() != sample.token: raise ReadError('Battle changed while reading report fields.')
-        return dict(schema=1, kind='sample', sim_s=sample.game_ms / 1000 if sample.game_ms is not None else None,
+        clock=self.battle_clock(sample.token)
+        effect_damage_scale=self.effect_damage_scale(sample.token)
+        if self.roots()!=sample.token:raise ReadError('Battle changed while reading report fields and the battle clock.')
+        if self.battle_phase(sample.token)!=phase:raise ReadError('Battle phase changed while reading the battle clock.')
+        return dict(schema=1, kind='sample', sim_s=clock['elapsed_s'] if clock else None,
+                    model_s=sample.game_ms/1000 if sample.game_ms is not None else None,battle_clock=clock,
                     units=units, armies=armies, unreadable_units=sample.errors,
-                    battle_phase=phase,battle_result=result,fatigue_rules=rules)
+                    battle_phase=phase,battle_result=result,fatigue_rules=rules,effect_damage_scale=effect_damage_scale)

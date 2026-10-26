@@ -19,7 +19,22 @@
     "kills": "icon_kills.png",
     "fatigue": "icon_status_fatigue.png",
     "winds": "icon_magic_pool.png",
-    "trade": "icon_trade.png"
+    "trade": "icon_trade.png",
+    "statline:hp": "statline_hp.png",
+    "statline:models": "statline_models.png",
+    "statline:armour": "statline_armour.png",
+    "statline:leadership": "statline_leadership.png",
+    "statline:speed": "statline_speed.png",
+    "statline:melee_attack": "statline_melee_attack.png",
+    "statline:melee_defence": "statline_melee_defence.png",
+    "statline:weapon_strength": "statline_weapon_strength.png",
+    "statline:charge_bonus": "statline_charge_bonus.png",
+    "statline:spell_resistance": "statline_spell_resistance.png",
+    "statline:missile_resistance": "statline_missile_resistance.png",
+    "statline:fire_resistance": "statline_fire_resistance.png",
+    "statline:physical_resistance": "statline_physical_resistance.png",
+    "statline:ward_save": "statline_ward_save.png",
+    "statline:retreat": "statline_retreat.png"
   },
   "units": {
     "Tretch Craventail": "ui/units/minspec_portholes/wh2_dlc09_skv_cha_tretch_craventail.png",
@@ -58324,6 +58339,66 @@
     "icon_trade.png": {
       "source": "ui/skins/default/icon_trade.png",
       "sha256": "c2be59399ac5d5237097c7e2fdec042e28d63de4e4e27f3449429405c4e466ee"
+    },
+    "statline_hp.png": {
+      "source": "ui/skins/default/icon_stat_health.png",
+      "sha256": "024e5484d2ee451aaa98059f43689a42d63bdc0c2a27d27657f5df309778d708"
+    },
+    "statline_models.png": {
+      "source": "ui/skins/default/icon_entity_small.png",
+      "sha256": "6461f4bcb71f8b135a32a2a4883bbebb97315f64e750659482747c25f0813ed8"
+    },
+    "statline_armour.png": {
+      "source": "ui/skins/default/icon_stat_armour.png",
+      "sha256": "36af3189d1a6378aa71296121d93d44d05f3782063932a459a11bbbd962d7477"
+    },
+    "statline_leadership.png": {
+      "source": "ui/skins/default/icon_stat_morale.png",
+      "sha256": "76a99cc32f2c230f9c93f881a84d0f1ae0adc3f1f7875e7e9319a671e54fef97"
+    },
+    "statline_speed.png": {
+      "source": "ui/skins/default/icon_stat_speed.png",
+      "sha256": "8b57ee5f353028e5df7d03ccfc07a14f4020178d460348fd0f2503be40491bc7"
+    },
+    "statline_melee_attack.png": {
+      "source": "ui/skins/default/icon_stat_attack.png",
+      "sha256": "a8fbef98a90829f051c2891e303e7ecbb9c6b770f739ffa241d2fc1fbed714f5"
+    },
+    "statline_melee_defence.png": {
+      "source": "ui/skins/default/icon_stat_defence.png",
+      "sha256": "0beee9ae76bb30dad5fd58c5bca2196e24a4c419a62d6a75b290b85a37b54951"
+    },
+    "statline_weapon_strength.png": {
+      "source": "ui/skins/default/icon_stat_damage.png",
+      "sha256": "107d561e6546f3ad383ec1eef497398454e2cdab9ed44a036399faaa944afe79"
+    },
+    "statline_charge_bonus.png": {
+      "source": "ui/skins/default/icon_stat_charge_bonus.png",
+      "sha256": "985f56eab6609fb873597197b3b5bb9cf1fcdbb6d1db50732d917b13ef18b135"
+    },
+    "statline_spell_resistance.png": {
+      "source": "ui/Battle UI/ability_icons/resistance_magic.png",
+      "sha256": "fd2ea19737e4ce4a56bab846cfa8a357c5640b32fef10b90116a5a134ca8fded"
+    },
+    "statline_missile_resistance.png": {
+      "source": "ui/Battle UI/ability_icons/resistance_missile.png",
+      "sha256": "90654c415de96558c036876929788f3f00d7bf5da02784b762e75e3727d4cd29"
+    },
+    "statline_fire_resistance.png": {
+      "source": "ui/Battle UI/ability_icons/resistance_fire.png",
+      "sha256": "6ff76f5efae9682dc199bb2a73ec8ffc6632f974457eb6c9adb5244c25ac5932"
+    },
+    "statline_physical_resistance.png": {
+      "source": "ui/Battle UI/ability_icons/resistance_physical.png",
+      "sha256": "682fb82a5470a3b6e76432468ff91b33d789d211596bbe464bd3c17481c9703c"
+    },
+    "statline_ward_save.png": {
+      "source": "ui/Battle UI/ability_icons/resistance_ward_save.png",
+      "sha256": "297c100a3217be95466b976e58dcf3b2d198f931b55935c1b6bc8e7289f1080d"
+    },
+    "statline_retreat.png": {
+      "source": "ui/skins/default/icon_status_route_24px.png",
+      "sha256": "85b59056e16ba4dca84a4e131506231caa4fc5b35c56144a86dac68e70a134a8"
     }
   },
   "labels": {

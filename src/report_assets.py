@@ -26,7 +26,42 @@ def index_at(path):
     return read_index(str(path),stamp.st_mtime_ns,stamp.st_size)
 
 
-def assets_for(units):
+def readable_effect_name(text):
+    if not isinstance(text,str):return None
+    text=re.sub(r'\[\[[^\]]*\]\]','',text).strip()
+    if not text or re.search(r'{{|[<>]|\bwh[23]?_|[a-z0-9]+_[a-z0-9_]+',text,re.I):return None
+    if not any(c.isalpha() for c in text) or re.fullmatch(r'(?:0x)?[a-f0-9]{8,}',text,re.I):return None
+    if any(ord(c)<32 for c in text):return None
+    return text
+
+
+def effect_texts_for(units,root):
+    index=index_at(root/'effect-texts.json')
+    result={}
+    for u in units:
+        for effect in (u.get('effect_timeline') or {}).get('effects',[]):
+            key=effect['key'];ability_key,separator,phase_key=key.partition(':')
+            if not separator:phase_key=key
+            ability=index['abilities'].get(ability_key,{})
+            phase=index['phases'].get(phase_key,{})
+            phase_name=readable_effect_name(phase.get('name'))
+            parent=readable_effect_name(ability.get('name')) or readable_effect_name(effect.get('name'))
+            stage=bool(phase_name and re.match(r'^(?:stage|phase)\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|[ivxlcdm]+|[0-9]+)\b',phase_name,re.I))
+            if stage:
+                if not parent:
+                    names={readable_effect_name(index['abilities'].get(k,{}).get('name')) for k in phase.get('ability_keys',[])+phase.get('family_ability_keys',[])}-{None}
+                    if len(names)==1:parent=names.pop()
+                name=parent+' \u2014 '+phase_name if parent and parent!=phase_name else phase_name
+            else:name=parent or phase_name
+            polarity=effect.get('polarity') or phase.get('polarity')
+            fallback='Unidentified '+{'positive':'buff','negative':'debuff'}.get(polarity,'effect')
+            result[key]=dict(name=name or fallback,
+                source_label=ability.get('source_label',''),health=phase.get('health',{}),
+                modifiers=phase.get('modifiers',[]),details=phase.get('details',[]))
+    return result
+
+
+def assets_for(units,icons=True):
     root=resource_path('assets')
     index=index_at(root/'game-assets.json')
     prices=index_at(root/'unit-values.json')
@@ -79,13 +114,20 @@ def assets_for(units):
             castes={i.get('caste') for i in infos}
             info[uid]=dict(artillery=all(i.get('artillery') is True for i in infos),unit_key=key,
                 character=bool(infos) and all(i.get('caste') in ('lord','hero') for i in infos),
-                caste=next(iter(castes)) if len(castes)==1 else None)
+                caste=next(iter(castes)) if len(castes)==1 else None,
+                culture=next(iter(cultures)) if len(cultures:={i.get('culture') for i in infos}-{None})==1 else None)
         ps=[prices['by_unit_key'][key]] if key in prices.get('by_unit_key',{}) else prices['names'].get(labels.get(name,name),[])
         if not ps and keys:ps=[prices['by_unit_key'][k] for k in keys if k in prices.get('by_unit_key',{})]
         unit_values[name]=ps
         values_by_id[uid]=ps
     names=set(index['stats'].values())|set(by_id.values())
-    return dict(stats=index['stats'],units=cards,unit_cards=by_id,labels=labels,unit_notes=notes,unit_info=info,
+    stats=index['stats']
+    if not icons:
+        question=stats['other'];names={question}
+        stats={key:question for key in stats}
+        cards={u['name']:question for u in units};by_id={u['id']:question for u in units}
+    return dict(stats=stats,icons_enabled=bool(icons),units=cards,unit_cards=by_id,labels=labels,unit_notes=notes,unit_info=info,
+        race_names=index_at(root/'race-names.json'),effect_texts=effect_texts_for(units,root),statline=index_at(root/'statline.json'),
         unit_values=unit_values,unit_values_by_id=values_by_id,value_source=prices['source'],value_source_sha256=prices['sha256'],
         images={n:'data:image/png;base64,'+base64.b64encode((root/'game'/n).read_bytes()).decode('ascii') for n in names},
         provenance={n:library[n] for n in names})

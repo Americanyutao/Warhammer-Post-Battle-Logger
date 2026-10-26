@@ -163,6 +163,10 @@ def main():
         note='Every PNG under ui/units and ui/portraits retained, including portholes and info pictures; reports embed only needed assets. Main-unit to land-unit variant links supply the original configured cards.')
     (P/'assets/game-assets.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
     print(json.dumps({k:v for k,v in manifest['library_summary'].items() if k!='unmapped_unit_keys'},ensure_ascii=True));print('Unmapped records:',len(missing))
+    from package_effect_texts import build_index
+    build_index()
+    from package_statline import main as build_statline
+    build_statline()
 
 
 if __name__=='__main__':main()

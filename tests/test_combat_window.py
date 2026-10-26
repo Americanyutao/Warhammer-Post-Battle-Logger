@@ -58,6 +58,20 @@ class CombatWindowTests(unittest.TestCase):
         self.assertEqual(u['initial_values_source'],'deployment')
         self.assertEqual(u['first']['hp_cached'],8000)
 
+    def test_wounded_deployment_seeds_healing_before_first_combat_sample(self):
+        gate=CombatWindow();b=Battle()
+        deployment=next(frames(1,1));deployment.update(battle_phase=4,sim_s=100)
+        deployment['units'][0].update(hp_cached=6000,hp_max_cached=8000,healing_budget_remaining_hp=6000)
+        self.assertIsNone(gate.accept(deployment))
+        combat=copy.deepcopy(deployment);combat.update(battle_phase=5,sim_s=0)
+        combat['units'][0].update(hp_cached=5500,healing_budget_remaining_hp=5500)
+        b.observe(gate.accept(combat));u=b.summary()['units'][0]
+        self.assertEqual(u['initial_values_source'],'deployment')
+        self.assertEqual(u['damage_taken_estimate'],1000)
+        self.assertEqual(u['healing_received_estimate'],500)
+        self.assertEqual(u['healing_budget_remaining_calculated'],5500)
+        self.assertEqual(u['damage_taken_calculation']['baseline']['hp'],6000)
+
     def test_unknown_results_and_missing_clock_cannot_start_capture(self):
         gate=CombatWindow();frame=next(frames(1,1))
         for phase in (None,1,8,9):

@@ -133,7 +133,7 @@ class Worker(threading.Thread):
                                 metadata = dict(started_pacific=now.strftime('%Y-%m-%d %H:%M:%S %Z'),
                                     build=self.profile['name'], source='external-native', refresh_hz=self.rate,
                                     maximum_interval_s=80, debug_visibility='full_enemy_collection', schema=1)
-                                metadata.update(collector_revision=12,capabilities=['native_result_type','native_combat_boundary','deployment_initial_values','native_fatigue_pair','native_starting_ammo','ammo_net_expended','retreat_state_union','native_result_health_and_exit','native_damage_by_source','friendly_self_hp_damage','explicit_winds_rate_units','native_healing_budget','flat_ammo','signed_leadership','unit_type_key','unit_portrait_path','fatigue_points_and_rules','character_level','native_results_phase','left_battlefield','rally_wait_raw'])
+                                metadata.update(collector_revision=17,capabilities=['coalesced_paused_samples','sampled_unit_statline','effect_instances_and_intensity','configured_effect_damage_scale','native_battle_ui_clock','sampled_active_effects','battle_time_effect_ticks','native_result_type','native_combat_boundary','deployment_initial_values','native_fatigue_pair','native_starting_ammo','ammo_net_expended','retreat_state_union','native_result_health_and_exit','native_damage_by_source','friendly_self_hp_damage','explicit_winds_rate_units','native_healing_budget','flat_ammo','signed_leadership','unit_type_key','unit_portrait_path','fatigue_points_and_rules','character_level','native_results_phase','left_battlefield','rally_wait_raw'])
                                 self.battle = Battle(metadata, keep_history=False, max_gap=80)
                                 self.wall_start, self.cpu_start = time.monotonic(), time.process_time()
                                 self.recorder = Recorder(path, key, metadata)
@@ -147,8 +147,7 @@ class Worker(threading.Thread):
                         frame['performance'] = self.stats
                         if self.recorder:
                             self.battle.observe(frame)
-                            # Equal timestamps can still contain updated fields. Preserve
-                            # them so offline aggregation matches live paused observations.
+                            # The recorder coalesces equal timestamps to their latest state.
                             self.recorder.submit(frame)
                             self.status = 'In battle · recording'
                             if self.recorder.error: self.status = 'Recording error: '+self.recorder.error

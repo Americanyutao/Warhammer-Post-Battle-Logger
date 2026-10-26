@@ -16,6 +16,7 @@ class CombatWindow:
             self.started = False
             excluded = {'xyz','alive','left_battlefield','awaiting_order_after_rally_raw',*STATES}
             self.baseline = dict(sim_s=frame.get('sim_s'), source='native_deployment',
+                battle_clock=copy.deepcopy(frame.get('battle_clock')),
                 units=[{k:copy.deepcopy(v) for k,v in u.items() if k not in excluded} for u in frame['units']],
                 armies=copy.deepcopy(frame.get('armies', [])))
             return None

@@ -26,7 +26,7 @@ class Response(io.BytesIO):
 class FakeProgress:
     def __init__(self,*args,**kwargs):pass
     def start(self):return self
-    def update(self,*args):pass
+    def update(self,*args,**kwargs):pass
     def close(self):pass
 
 class UpdateTests(unittest.TestCase):
@@ -95,6 +95,17 @@ class IncrementalTests(unittest.TestCase):
         self.assertIsNotNone(value,'Only byte-range downloads are allowed')
         start,end=map(int,value[6:].split('-'))
         return Response(self.blob,start,end+1,len(self.blob))
+    def test_package_excludes_source_and_internal_project_notes(self):
+        from update_manifest import app_files
+        for name in ('AGENTS.md','MAIN_DIRECTORY.md','MOD_ACCESS_AUDIT.md','PROJECT_STATUS.md','RUN.md','README.md'):
+            (self.new/name).write_text('local development notes',encoding='utf-8')
+        (self.new/'docs').mkdir()
+        (self.new/'docs/v2-review.md').write_text('local review',encoding='utf-8')
+        (self.new/'README.txt').write_text('Public app instructions',encoding='utf-8')
+        names=[p.relative_to(self.new).as_posix() for p in app_files(self.new)]
+        self.assertIn('README.txt',names)
+        self.assertTrue(all(n in ('WH3BattleLogger.exe','README.txt') or n.startswith('_internal/') for n in names))
+        self.assertFalse(any(n.endswith('.md') for n in names))
     def prepare(self):
         files=validate_manifest(self.manifest,'v9.0.0',len(self.blob))
         changed,removed=updater.plan_update(files,self.old)
@@ -121,12 +132,65 @@ class IncrementalTests(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in self.old.iterdir()),['WH3BattleLogger.exe','_internal','captures'])
     def test_failed_copy_restores_old_files_and_private_data(self):
         stage,_,_=self.prepare()
-        with patch('updater.shutil.copy2',side_effect=OSError('disk full')):
+        with patch('updater.copy_install_file',side_effect=OSError('disk full')):
             with self.assertRaises(OSError):updater.install_files(stage,self.old)
         self.assertEqual((self.old/'WH3BattleLogger.exe').read_bytes(),b'old executable')
         self.assertEqual((self.old/'captures/logger.key').read_bytes(),b'private')
         self.assertTrue((self.old/'_internal/obsolete.dll').is_file())
         self.assertFalse((stage.parent/'rollback').exists())
+    def test_update_preserves_report_settings(self):
+        from settings import Settings,load_report_options
+        Settings(self.old).save(icons=False)
+        before=(self.old/'settings.json').read_bytes()
+        stage,_,_=self.prepare();updater.install_files(stage,self.old)
+        self.assertEqual((self.old/'settings.json').read_bytes(),before)
+        self.assertFalse(load_report_options(self.old)['icons'])
+    def test_cancel_mid_install_restores_old_app_and_all_html_reports(self):
+        stage,_,_=self.prepare()
+        (self.old/'captures/another.html').write_bytes(b'another saved report')
+        observed=[]
+        def progress(text,done,total,unit,*details):
+            observed.append((done,total,unit))
+            if done>0:raise Cancelled()
+        with self.assertRaises(Cancelled):updater.install_files(stage,self.old,progress)
+        self.assertTrue(any(done>0 and unit=='bytes' for done,_,unit in observed))
+        self.assertEqual((self.old/'WH3BattleLogger.exe').read_bytes(),b'old executable')
+        self.assertEqual((self.old/'captures/report.html').read_bytes(),b'old report')
+        self.assertEqual((self.old/'captures/another.html').read_bytes(),b'another saved report')
+        self.assertEqual((self.old/'captures/logger.key').read_bytes(),b'private')
+        self.assertFalse((stage.parent/'rollback').exists())
+
+    def test_install_reports_actual_written_byte_totals(self):
+        stage,changed,_=self.prepare();updates=[]
+        updater.install_files(stage,self.old,lambda *args:updates.append(args))
+        total=sum(item['size'] for item in changed)
+        self.assertEqual(updates[-1],('Installation complete',total,total,'bytes'))
+        self.assertEqual((self.old/'captures/report.html').read_bytes(),b'old report')
+
+    def test_progress_window_uses_measured_speed_and_time(self):
+        from update_ui import ProgressWindow
+        window=ProgressWindow()
+        with patch('update_ui.time.monotonic',side_effect=[0,2]):
+            window.update('Installing changes',0,100*1048576,'bytes','app.exe',2)
+            window.update('Installing changes',50*1048576,100*1048576,'bytes','app.exe',1)
+        self.assertEqual(window.headline,'50% complete')
+        self.assertEqual(window.details,'50.00 MB / 100.00 MB installed')
+        self.assertEqual(window.speed,25*1048576)
+        self.assertEqual(window.time_remaining,'About 2 seconds')
+        self.assertEqual(window.item_details,'1')
+
+    def test_paused_progress_can_be_cancelled_without_changing_counts(self):
+        from update_ui import ProgressWindow
+        window=ProgressWindow();window.paused.set();finished=threading.Event()
+        def advance():
+            try:window.update('Installing changes',10,100,'bytes')
+            except Cancelled:finished.set()
+        thread=threading.Thread(target=advance);thread.start()
+        self.assertFalse(finished.wait(.1))
+        window.cancelled.set();thread.join(timeout=2)
+        self.assertFalse(thread.is_alive());self.assertTrue(finished.is_set())
+        self.assertEqual(window.done,0)
+
     def test_legacy_full_zip_helper_also_leaves_no_backup(self):
         updater.install_files(self.new,self.old)
         self.assertEqual((self.old/'WH3BattleLogger.exe').read_bytes(),b'new executable')
@@ -206,6 +270,15 @@ class UpdateLifecycleTests(unittest.TestCase):
                     launch.assert_called_once()
                     self.assertIn('--cleanup-update',launch.call_args.args[0])
             finally:process.wait(timeout=5)
+    def test_cancelled_installer_restarts_original_without_new_cli_flags(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp).resolve();stage=root/'wh3-logger-update-test/app';stage.mkdir(parents=True)
+            dest=root/'installed';dest.mkdir();(dest/'WH3BattleLogger.exe').write_bytes(b'old')
+            with patch('updater.sys.executable',str(stage/'WH3BattleLogger.exe')),patch('updater.wait_for_exit'),patch('updater.install_files',side_effect=Cancelled()),patch('updater.ProgressWindow',FakeProgress),patch('updater.cleanup_after_cancel') as clean,patch('updater.subprocess.Popen') as launch:
+                updater.apply_update(dest,123)
+                launch.assert_called_once_with([str(dest/'WH3BattleLogger.exe')],cwd=dest)
+                clean.assert_called_once_with(stage.parent,dest)
+
     def test_update_exit_saves_before_launching_helper(self):
         from release_app import BackgroundApp
         import queue

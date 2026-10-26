@@ -2,6 +2,7 @@
 import sys
 from pathlib import Path
 import unittest
+import struct
 P=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(P/'src'))
 from damage_taken import DamageTaken
@@ -55,6 +56,40 @@ class DamageTakenTests(unittest.TestCase):
         e=DamageTaken();e.observe(0,unit(hp=5000))
         e.observe(1,unit(hp=5800,budget=5200))
         self.assertEqual(e.amount,0)
+        self.assertEqual(e.healing,800)
+        self.assertEqual(e.summary()['healing_budget_remaining_calculated'],5200)
+
+    def test_wounded_start_with_damage_and_healing(self):
+        e=DamageTaken();e.observe(0,unit(hp=6000))
+        # 1,000 incoming damage and 500 healing, starting below maximum HP.
+        e.observe(1,unit(hp=5500,budget=5500))
+        self.assertEqual(e.amount,1000)
+        self.assertEqual(e.healing,500)
+        self.assertEqual(e.remaining_budget,5500)
+        self.assertEqual(e.basis['hp'],6000)
+
+    def test_initial_capacity_modifier_is_preserved(self):
+        # Capacity is captured, rather than assuming a 75% budget.
+        for initial_budget in (0,800,12000):
+            e=DamageTaken();e.observe(0,unit(hp=6000,budget=initial_budget))
+            e.observe(1,unit(hp=5000,budget=initial_budget))
+            self.assertEqual((e.amount,e.healing,e.remaining_budget),(1000,0,initial_budget))
+
+    def test_no_healing_spending_then_normal_healing(self):
+        e=DamageTaken();e.observe(0,unit(hp=6000))
+        # A prevented heal changes neither HP nor budget; later damage still counts.
+        e.observe(1,unit(hp=6000));e.observe(2,unit(hp=5000))
+        self.assertEqual((e.amount,e.healing),(1000,0))
+        e.observe(3,unit(hp=5500,budget=5500))
+        self.assertEqual((e.amount,e.healing,e.remaining_budget),(1000,500,5500))
+
+    def test_minor_cache_recovery_below_baseline_does_not_discard_estimate(self):
+        e=DamageTaken();e.observe(0,unit())
+        e.observe(1,unit(hp=5000));self.assertEqual(e.amount,3000)
+        # HP cache and native budget need not update at the same instant.
+        e.observe(2,unit(hp=5010,budget=5995))
+        self.assertIsNone(e.invalid)
+        self.assertEqual(e.amount,2995)
 
     def test_multi_model_uses_unclamped_budget(self):
         e=DamageTaken();e.observe(0,unit(models_initial=120,healing_ceiling_fraction_raw=1))
@@ -111,7 +146,7 @@ class DamageTakenTests(unittest.TestCase):
         f=BattleFixture();b=Battle();b.observe(f.reader.normalized(f.sample()))
         f.memory.u(f.own[0]['address']+0x6b0,7300)
         stats=f.reader.ptr(f.own[0]['adapter']+0x3d48)
-        f.memory.u(stats+0x264,5200);f.memory.u(f.script+0x4a4,11000)
+        f.memory.u(stats+0x264,5200);f.memory.u(f.script+0x4a4,11000);f.memory.write(f.roster+0xf8,struct.pack('<f',11.))
         b.observe(f.reader.normalized(f.sample()))
         row=b.summary()['units'][0]
         self.assertEqual(row['damage_taken_estimate'],1000)

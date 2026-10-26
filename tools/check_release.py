@@ -20,6 +20,8 @@ def main():
     parser.add_argument('--app-dir',type=Path,default=P/'release/WH3BattleLogger')
     parser.add_argument('--headless',action='store_true')
     args=parser.parse_args()
+    assert {p.name for p in args.app_dir.iterdir()} == {'WH3BattleLogger.exe','README.txt','_internal'}, 'Release root must contain only the app, runtime folder and README.txt.'
+    assert not list(args.app_dir.rglob('*.md')), 'Development Markdown must not be included in the app.'
     exe=args.app_dir/'WH3BattleLogger.exe'
     pe=pefile.PE(str(exe))
     assert pe.OPTIONAL_HEADER.Subsystem==2,'Release must have no console subsystem.'

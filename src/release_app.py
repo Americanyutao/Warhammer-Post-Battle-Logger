@@ -17,6 +17,7 @@ from worker import Worker, RATES
 from updater import UpdateChecker, apply_update, launch_installer, cleanup_update, cleanup_legacy_backups
 from update_ui import ProgressWindow
 from version import VERSION
+from settings import Settings
 
 
 def open_reports(root):
@@ -35,6 +36,8 @@ class BackgroundApp:
         self.last_status=None
         self.updates=UpdateChecker(self.tray.actions)
         self.about=None
+        self.settings=Settings(self.root)
+        self.settings_window=None
 
     def run(self):
         try:
@@ -50,6 +53,10 @@ class BackgroundApp:
                 if action=='check_updates':self.updates.start()
                 if action=='about' and (self.about is None or not self.about.thread.is_alive()):
                     self.about=ProgressWindow(title='About Battle Logger',about=True).start()
+                if action=='settings':
+                    if self.settings_window is None or not self.settings_window.thread.is_alive():
+                        self.settings_window=ProgressWindow(title='Battle Logger settings',settings=self.settings).start()
+                    else:self.settings_window.focus()
                 if action=='install_update':break
                 if action=='open_reports':open_reports(self.root)
                 try:
@@ -72,6 +79,7 @@ class BackgroundApp:
             if self.worker.is_alive():self.worker.join()
             self.tray.stop()
             if self.about:self.about.close()
+            if self.settings_window:self.settings_window.close()
         if self.updates.pending:
             launch_installer(self.updates.pending,Path(sys.executable).resolve().parent)
 

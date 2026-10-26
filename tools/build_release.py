@@ -1,5 +1,6 @@
 """Build the windowless release without copying private captures or keys."""
 import importlib.util
+import argparse
 import json
 import os
 from pathlib import Path
@@ -11,7 +12,7 @@ import time
 P=Path(__file__).resolve().parents[1]
 
 
-def main():
+def main(build_only=False):
     dependencies=Path(os.environ.get('WH3_BUILD_DEPS', P/'build/packaging-deps'))
     sys.path.insert(0,str(dependencies))
     if importlib.util.find_spec('PyInstaller') is None:
@@ -44,8 +45,8 @@ def main():
         'Keep the key with the captures. HTML reports are readable standalone files.\n'
         'Updates preserve captures and keep no permanent backup copy.\n'
         'Only the supported game builds are read; no game files or process memory are modified.\n',encoding='utf-8')
-    shutil.copytree(built,destination,dirs_exist_ok=True)
-    executable=destination/'WH3BattleLogger.exe'
+    if not build_only:shutil.copytree(built,destination,dirs_exist_ok=True)
+    executable=(built if build_only else destination)/'WH3BattleLogger.exe'
     if not executable.is_file():raise RuntimeError('Release executable was not produced.')
     import PyInstaller
     sys.path.insert(0,str(P/'src'))
@@ -56,4 +57,7 @@ def main():
     print(executable)
 
 
-if __name__=='__main__':main()
+if __name__=='__main__':
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--build-only',action='store_true',help='Build separately without replacing the local app (use while the logger is running).')
+    main(parser.parse_args().build_only)

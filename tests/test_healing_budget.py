@@ -25,7 +25,7 @@ class HealingBudgetTests(unittest.TestCase):
     def test_budget_consumption_preserved_in_history(self):
         f=BattleFixture();b=Battle();b.observe(f.reader.normalized(f.sample()))
         u=f.own[0];stats=f.reader.ptr(u['adapter']+0x3d48)
-        f.memory.u(stats+0x264,5200);f.memory.u(f.script+0x4a4,11000)
+        f.memory.u(stats+0x264,5200);f.memory.u(f.script+0x4a4,11000);f.memory.write(f.roster+0xf8,struct.pack('<f',11.))
         b.observe(f.reader.normalized(f.sample()))
         row=b.summary()['units'][0]
         self.assertEqual(row['history'][-1]['healing_budget_remaining_hp'],5200)

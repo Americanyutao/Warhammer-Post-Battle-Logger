@@ -24,10 +24,10 @@ def set_window_icon(root):
     root._battle_logger_icons=images
 
 
-def load_tray_icon():
+def load_tray_icon(size=32):
     user=ctypes.WinDLL('user32',use_last_error=True)
     user.LoadImageW.argtypes=[w.HINSTANCE,w.LPCWSTR,w.UINT,ctypes.c_int,ctypes.c_int,w.UINT]
     user.LoadImageW.restype=w.HICON
-    icon=user.LoadImageW(None,str(ICON_PATH),1,32,32,0x10)
+    icon=user.LoadImageW(None,str(ICON_PATH),1,size,size,0x10)
     if not icon:raise ctypes.WinError(ctypes.get_last_error())
     return icon

@@ -1,0 +1,130 @@
+{
+  "schema": 1,
+  "rows": [
+    {
+      "key": "hp",
+      "label": "Current HP",
+      "max": 6000.0,
+      "min": 0.0,
+      "caste_max": {},
+      "percent": false
+    },
+    {
+      "key": "models",
+      "label": "Models",
+      "max": 1.0,
+      "min": 0.0,
+      "caste_max": {},
+      "percent": false
+    },
+    {
+      "key": "armour",
+      "label": "Armour",
+      "max": 180.0,
+      "min": 0.0,
+      "caste_max": {},
+      "percent": false
+    },
+    {
+      "key": "leadership",
+      "label": "Leadership",
+      "max": 120.0,
+      "min": -55.0,
+      "caste_max": {},
+      "percent": false
+    },
+    {
+      "key": "speed",
+      "label": "Speed",
+      "max": 140.0,
+      "min": 0.0,
+      "caste_max": {},
+      "percent": false
+    },
+    {
+      "key": "melee_attack",
+      "label": "Melee Attack",
+      "max": 100.0,
+      "min": 0.0,
+      "caste_max": {},
+      "percent": false
+    },
+    {
+      "key": "melee_defence",
+      "label": "Melee Defence",
+      "max": 100.0,
+      "min": 0.0,
+      "caste_max": {},
+      "percent": false
+    },
+    {
+      "key": "weapon_strength",
+      "label": "Weapon Strength",
+      "max": 100.0,
+      "min": 0.0,
+      "caste_max": {
+        "hero": 800.0,
+        "lord": 800.0,
+        "monster": 800.0,
+        "monstrous_cavalry": 200.0,
+        "monstrous_infantry": 200.0
+      },
+      "percent": false
+    },
+    {
+      "key": "charge_bonus",
+      "label": "Charge Bonus",
+      "max": 100.0,
+      "min": 0.0,
+      "caste_max": {
+        "hero": 150.0,
+        "lord": 150.0
+      },
+      "percent": false
+    },
+    {
+      "key": "spell_resistance",
+      "label": "Spell resistance",
+      "max": 100.0,
+      "min": 0.0,
+      "caste_max": {},
+      "percent": true
+    },
+    {
+      "key": "missile_resistance",
+      "label": "Missile resistance",
+      "max": 100.0,
+      "min": 0.0,
+      "caste_max": {},
+      "percent": true
+    },
+    {
+      "key": "fire_resistance",
+      "label": "Fire resistance",
+      "max": 100.0,
+      "min": 0.0,
+      "caste_max": {},
+      "percent": true
+    },
+    {
+      "key": "physical_resistance",
+      "label": "Physical resistance",
+      "max": 100.0,
+      "min": 0.0,
+      "caste_max": {},
+      "percent": true
+    },
+    {
+      "key": "ward_save",
+      "label": "Ward save",
+      "max": 100.0,
+      "min": 0.0,
+      "caste_max": {},
+      "percent": true
+    }
+  ],
+  "source_hashes": {
+    "db\\ui_unit_stats_tables\\data__.tsv": "05308b2f99b257665a93da20dec490bea45a1aa97b87921fa8d11954b7422147",
+    "db\\ui_unit_stat_to_unit_castes_tables\\data__.tsv": "a6ae0d0279bde5dda652dcc18c87e9976fcacf2469a5055cc7379dfb0c48aec4"
+  }
+}

@@ -3,8 +3,8 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const html=fs.readFileSync(process.argv[2]||path.join(__dirname,'../build/demo-report.html'),'utf8');
 const markup=html.split('<script id="data"')[0],payload=html.match(/<script id="data" type="application\/json">([\s\S]*?)<\/script>/)[1],data=JSON.parse(payload),script=html.match(/<\/script><script>([\s\S]*?)<\/script>/)[1];
 new vm.Script(script);const storage=new Map(),operations=[],styles=new Map();
-function run(block=false){const nodes={},ids=new Set(['data',...[...markup.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1])]),canvas=new Proxy({},{get:(o,k)=>k in o?o[k]:(...args)=>operations.push({method:k,args})});
- function node(id){if(!ids.has(id)&&!nodes['unit-panels']?.innerHTML.includes('id="'+id+'"'))return null;if(nodes[id])return nodes[id];let value='';return nodes[id]={style:{},textContent:id==='data'?payload:'',innerHTML:'',get value(){return value},set value(v){value=String(v??'')},open:false,hidden:false,children:[],setAttribute(k,v){this[k]=v},getBoundingClientRect:()=>({width:800,height:360,left:0,top:0}),getContext:()=>canvas,appendChild(c){this.children.push(c)}}}
+function run(block=false){const nodes={},ids=new Set(['data',...[...markup.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1])]),canvas=new Proxy({measureText:text=>({width:String(text).length*7})},{get:(o,k)=>k in o?o[k]:(...args)=>operations.push({method:k,args}),set:(o,k,v)=>{o[k]=v;operations.push({method:'set:'+k,args:[v]});return true}});
+ function node(id){if(!ids.has(id)&&!Object.values(nodes).some(n=>n.innerHTML?.includes('id="'+id+'"')))return null;if(nodes[id])return nodes[id];let value='';return nodes[id]={style:{},textContent:id==='data'?payload:'',innerHTML:'',get value(){return value},set value(v){value=String(v??'');if(id.endsWith('-scrubber')&&Number.isFinite(Number(value)))value=String(Math.max(Number(this.min??0),Math.min(Number(this.max??100),Number(value))))},open:false,hidden:false,children:[],setAttribute(k,v){this[k]=v},getBoundingClientRect:()=>({width:800,height:360,left:0,top:0}),getContext:()=>canvas,appendChild(c){this.children.push(c)}}}
  const windows=[];
  function makeWindow(){const events={},els={},doc={head:{appendChild(){}},body:{innerHTML:''},open(){},write(){},close(){},createElement:()=>({}),getElementById(id){if(!doc.body.innerHTML.includes('id="'+id+'"'))return null;return els[id]??={style:{},value:'',textContent:'',getBoundingClientRect:()=>({width:700}),getContext:()=>canvas}}};let win={document:doc,closed:false,devicePixelRatio:1,addEventListener(k,v){events[k]=v},close(){this.closed=true;events.pagehide?.()},focus(){this.focused=true}};doc.defaultView=win;windows.push(win);return win}
  const fakeWindow={devicePixelRatio:1,addEventListener(){},open:makeWindow};
@@ -21,6 +21,23 @@ assert.equal(e('cellText({last:{}},"hp_cached")'),'(—%) —/—');
 assert.equal(e('CATEGORIES.simple.columns.filter(c=>c[1]==="hp_cached").length'),1);
 assert.equal(e('CATEGORIES.simple.columns.filter(c=>c[1]==="models").length'),1);
 assert.equal(e('CATEGORIES.simple.columns.some(c=>c[1]==="hp_and_models")'),false);
+// Explanations belong to the heading bar, never to numeric table cells.
+for(const key of ['simple','damage','ranged','gold','taken','healing','remaining']){
+ e('selectCategory('+JSON.stringify(key)+')');
+ assert.doesNotMatch(n('rows').innerHTML,/<td[^>]*\btitle=/);
+ assert.equal(n('category-note').hidden,true);
+}
+e('selectCategory("simple")');
+assert.equal(e('cellTip("damage_taken")'),'');
+assert.equal(e('cellTip("source:ability")'),'Mortis Engines, Spirit Leech, and other abilities that deal damage through a debuff.');
+assert.match(e('cellTip("source:melee_combined")'),/collision damage\.$/);
+assert.match(e('cellTip("source:missile")'),/Needs more testing\.$/);
+assert.match(e('cellTip("source:other")'),/collision or missiles\.$/);
+for(const key of ['primary_ammo_expended','secondary_ammo_expended'])assert.match(e('cellTip('+JSON.stringify(key)+')'),/not separately accounted for\.$/);
+assert.doesNotMatch(e('cellTip("hp_cached")+cellTip("models")'),/retreat|death/i);
+assert.match(e('cellTip("healing_applied")'),/starting HP/);
+assert.doesNotMatch(n('detail').innerHTML,/<td[^>]*\btitle=/);
+assert.doesNotMatch(n('unit-summary').innerHTML,/<div class="card" title=/);
 // Releasing on the original row after a hold or selection must not open Unit view.
 const rowTarget={closest:()=>({dataset:{id:e('scopedUnits()[0].id')}})};
 function rowGesture(duration,{drag=false,selected=false,cancel=false}={}){
@@ -56,8 +73,8 @@ e('D.battle_result=null;renderBattleResult()');assert.equal(n('battle-result').h
 
 assert.equal(e('fmt(null).charCodeAt(0)'),0x2014);
 assert.ok(markup.indexOf('id="side"')<markup.indexOf('id="main-view"'));assert.equal((markup.match(/id="side"/g)||[]).length,1);
-assert.equal(e('category'),'simple');assert.equal(e('view'),'main');assert.equal(n('unit-view').hidden,true);assert.equal(e('layout.length'),7);
-assert.equal((n('unit-panels').innerHTML.match(/class="panel /g)||[]).length,7);assert.ok(!n('unit-panels').innerHTML.includes('placeholder'));
+assert.equal(e('category'),'simple');assert.equal(e('view'),'main');assert.equal(n('unit-view').hidden,true);assert.equal(e('layout.length'),8);
+assert.equal((n('unit-panels').innerHTML.match(/class="panel /g)||[]).length,8);assert.ok(!n('unit-panels').innerHTML.includes('placeholder'));
 for(let i=0;i<4;i++)assert.ok(n('graph-'+i));assert.equal(e('METRICS.length'),19);assert.match(n('unit-panels').innerHTML,/Idling time after unit rallies/);
 assert.ok(!e('METRICS.some(m=>m[0]==="barrier_hp")'));e("selectCategory('barrier')");assert.equal(n('rows').innerHTML,'');assert.match(n('head').innerHTML,/Work in Progress/);e("selectCategory('simple')");
 assert.ok(e('!METRICS.some(m=>m[0]==="morale_state"||m[0].includes("ammo_fraction"))'));
@@ -65,18 +82,18 @@ assert.ok(e('METRICS.filter(m=>m[0].startsWith("native:")).length===6'));assert.
 assert.match(n('rows').innerHTML,/gold-bar/);assert.match(n('rows').innerHTML,/damage-outgoing/);assert.ok(!e('CATEGORIES.status'));
 assert.equal(e('sortedUnits()[0].last.damage'),Math.max(...data.units.filter(u=>u.side==='Allied').map(u=>u.last.damage??0)));
 n('head').onclick({target:{closest:()=>({dataset:{key:'status'}})}});assert.ok(e('ascending && sortedUnits().every((u,i,a)=>!i||statusRank(a[i-1])<=statusRank(u))'));
-e("selectCategory('damage')");assert.match(n('head').innerHTML,/Mortis Engines/);assert.match(n('head').innerHTML,/charge and collision/);assert.match(n('head').innerHTML,/miscast damage/);assert.match(n('head').innerHTML,/Missiles and spells/);assert.match(n('head').innerHTML,/Friendly fire/);
+e("selectCategory('damage')");assert.match(n('head').innerHTML,/Mortis Engines/);assert.match(n('head').innerHTML,/charge and collision/);assert.match(n('head').innerHTML,/miscast damage/);assert.match(n('head').innerHTML,/Direct damage/);assert.ok(/Missiles<\/button>/.test(n('head').innerHTML));assert.match(n('head').innerHTML,/Friendly fire/);
 assert.equal(e('CATEGORIES.damage.columns[1][1]'),'gold_damage');assert.equal(e('CATEGORIES.damage.columns[4][1]'),'source:melee_combined');
 assert.equal(e('CATEGORIES.damage.columns[2][1]'),'kills');
 assert.equal(e('metricValue({primary_ammo_expended:386},"primary_ammo_expended",{})'),386);
 assert.equal(e('ammoValue({ammo:{primary:{initial:1080,expended:386}}},"primary_ammo_expended")'),386);
 assert.equal(e('ammoValue({ammo:{}},"secondary_ammo_initial")'),null);
-assert.match(e('cellTip("primary_ammo_expended")'),/Beginning ammo minus ending ammo only/);
+assert.match(e('cellTip("primary_ammo_expended")'),/Starting ammo minus ending ammo/);
 assert.match(e('icon("ammo:2")'),/<sub>2<\/sub>/);
 e("selectCategory('ranged')");assert.ok(e('sortedUnits().every(u=>ammoValue(u,"primary_ammo_initial")>0||ammoValue(u,"secondary_ammo_initial")>0)'));assert.equal(e('sortedUnits().length'),e('scopedUnits().filter(u=>ammoValue(u,"primary_ammo_initial")>0||ammoValue(u,"secondary_ammo_initial")>0).length'));
 assert.match(n('head').innerHTML,/Initial ammo/);assert.match(n('head').innerHTML,/Secondary ammo expended/);
 e("selectCategory('damage')");
-assert.match(n('unit-panels').innerHTML,/Retreating time/);assert.match(n('unit-panels').innerHTML,/Number of rallies/);assert.match(n('unit-panels').innerHTML,/Number of landings/);
+assert.match(n('unit-panels').innerHTML,/Retreating time/);assert.match(n('unit-panels').innerHTML,/Number of rallies/);assert.doesNotMatch(n('unit-panels').innerHTML,/Number of landings/);
 assert.ok(!n('detail').innerHTML.includes('Sampled travel distance'));
 assert.equal(e('statusName({first:{spawned:true},last:{alive:false},terminal_result:{status:"Dead"}})'),"Summon");
 assert.equal(e('sourceValue({last:{damage_by_source:{melee:{enemy:10},charge:{enemy:20},melee_collision:{enemy:30}}}},"melee_combined")'),60);
@@ -104,11 +121,11 @@ assert.equal(e('displayFatigueState({fatigue_state:0,fatigue_state_native:2,fati
 e("selectCategory('gold')");assert.match(n('rows').innerHTML,/gold-bar/);
 n('unit-panels').onchange({target:{dataset:{graph:'2'},value:'leadership'}});assert.equal(e('graphMetrics[2]'),'leadership');
 assert.ok(!markup.includes('Arrange & hide views'));assert.ok(!script.includes('Hover to inspect the nearest recorded sample'));
-assert.ok(e('METRICS.every(([key])=>metricNote(key,D.units[0]).length>40)'));
-n('hide-graph-explanations').onchange({target:{checked:true}});assert.equal(n('graph-note-0').hidden,true);assert.equal(n('movement-note').hidden,true);assert.equal(n('winds-note').hidden,true);
+assert.match(e('metricNote("damage_taken_estimate",D.units[0])'),/healing ceiling/);assert.ok(e('METRICS.filter(([key])=>key!=="damage_taken_estimate").every(([key])=>metricNote(key,D.units[0]).length>20)'));
+n('hide-graph-explanations').onchange({target:{checked:true}});assert.equal(n('graph-note-0').hidden,true);assert.equal(n('movement-heading').title,'');assert.equal(n('winds-heading').title,'');assert.equal(n('graph-heading-0').title,'');
 e('selectUnit(scopedUnits()[1]?.id||scopedUnits()[0].id)');assert.equal(e('graphMetrics[2]'),'leadership');assert.equal(n('graph-note-2').hidden,true);
 let reload=run();assert.equal(reload.e('graphMetrics[2]'),'leadership');assert.equal(reload.node('hide-graph-explanations').checked,true);assert.equal(reload.e('unitWorth(scopedUnits()[0]).value'),1000);
-n('hide-graph-explanations').onchange({target:{checked:false}});assert.equal(n('graph-note-0').hidden,false);assert.equal(n('winds-note').hidden,false);assert.match(n('graph-note-2').textContent,/leadership/i);
+n('hide-graph-explanations').onchange({target:{checked:false}});assert.equal(n('graph-note-0').hidden,false);assert.match(n('winds-heading').title,/usable Winds/);assert.match(n('graph-heading-2').title,/leadership/i);
 assert.equal(e('sameSegment({segment:1},{segment:2})'),false);assert.equal(e('known({last:{hp_cached:null},last_observed:{hp_cached:{value:500}}},"hp_cached")'),null);
 assert.equal(e('metricValue({hp_cached:1000,healing_budget_remaining_hp:6000},"healing_cap_remaining",{})'),7000);
 assert.equal(e('metricValue({healing_ceiling_fraction_raw:1.5,hp_max_cached:8000},"healing_cap_remaining",{last:{models_initial:1}})'),12000);
@@ -121,14 +138,131 @@ n('recorded-details').open=true;n('recorded-details').ontoggle();assert.match(n(
 n('side').value='Enemy';n('side').onchange();assert.match(n('unit-side').textContent,/ENEMY/);e("selectCategory('damage')");assert.match(n('rows').innerHTML,/damage-incoming/);
 const occupied=JSON.parse(e('JSON.stringify([...occupancy([{t:0,xyz:[0,0,0],segment:1,position_segment:1},{t:10,xyz:[0,0,0],segment:1,position_segment:1},{t:30,xyz:[0,0,0],segment:2,position_segment:2},{t:35,xyz:[0,0,0],segment:2,position_segment:2}],()=>[20,20]).values()])'));
 assert.equal(occupied[0].seconds,15);assert.equal(e('timeColor(0)'),'rgb(56,202,114)');assert.equal(e('timeColor(1)'),'rgb(238,82,82)');
-storage.set('wh3-report-unit-layout-v1',JSON.stringify([{id:'view-2',visible:false}]));const legacyLayout=run();assert.equal(legacyLayout.e('layout.filter(p=>p.visible).length'),7);
-const blocked=run(true);blocked.e('setExplanationsHidden(true)');assert.equal(blocked.node('hide-graph-explanations').checked,true);assert.equal(blocked.node('graph-note-0').hidden,true);
+storage.set('wh3-report-unit-layout-v1',JSON.stringify([{id:'view-2',visible:false}]));const legacyLayout=run();assert.equal(legacyLayout.e('layout.filter(p=>p.visible).length'),8);
+const blocked=run(true);blocked.e('setExplanationsHidden(true)');assert.equal(blocked.node('hide-graph-explanations').checked,true);assert.equal(blocked.node('graph-heading-0').title,'');
 
 assert.ok(n("winds"));assert.equal(e('cellText({first:{models:80},last:{models_initial:120}},"models_initial")'),"80/120");
 
+// Effect bars join only consecutive detections, preserving battle time and known gaps.
+assert.ok(n('effects'));assert.ok(n('unit-panels').innerHTML.indexOf('id="winds-heading"')>n('unit-panels').innerHTML.indexOf('Time spent doing each activity'));
+assert.ok(n('unit-panels').innerHTML.indexOf('id="effects-heading"')<n('unit-panels').innerHTML.indexOf('Time spent doing each activity'));
+e('globalThis.effectFixture={effect_timeline:{effects:[{key:"buff",name:"Example buff",polarity:"positive"},{key:"debuff",name:"Example debuff",polarity:"negative"}],samples:[[0,[0]],[.5,[0,1]],[1.5,[]],[3.5,null],[7.5,[1]]]}}');
+assert.equal(e('JSON.stringify(effectPlotData(effectFixture).rows.map(r=>r.ticks))'),'[[0,0.5],[0.5,7.5]]');
+assert.ok(Math.abs(e('(effectTimeX(7.5,0,10,200,800)-effectTimeX(3.5,0,10,200,800))/(effectTimeX(1.5,0,10,200,800)-effectTimeX(.5,0,10,200,800))')-4)<1e-10);
+assert.equal(e('effectTimeX(.5,0,.5,200,800)'),784);
+assert.equal(e('JSON.stringify(nearestEffectSample(effectFixture.effect_timeline.samples,3.6))'),'[3.5,null]');
+operations.length=0;e('drawEffects(effectFixture)');
+const bars=operations.filter(o=>o.method==='fillRect'&&o.args[3]===10);assert.equal(bars.length,3);assert.ok(bars[0].args[2]>3);assert.equal(bars[1].args[2],3);assert.equal(bars[2].args[2],3);
+assert.equal(e('JSON.stringify(effectPlotData(effectFixture).rows.map(r=>r.runs))'),'[[[0,0.5]],[[0.5,0.5],[7.5,7.5]]]');
+assert.equal(e('JSON.stringify(effectPlotData({effect_timeline:{effects:[{key:"buff"}],samples:[[0,[0]],[4,[0]],[8,[0]],[12,[0]]],segments:[1,1,2,2]}}).rows[0].runs)'),'[[0,4],[8,12]]');
+const effectLabels=operations.filter(o=>o.method==='fillText'&&/^[\d,.]+s$/.test(o.args[0]));assert.equal(effectLabels.length,5);assert.equal(new Set(effectLabels.map(o=>o.args[1])).size,5);assert.equal(e('battleTime(.5)'),'1');assert.equal(e('battleTime(7.4)'),'7');assert.equal(e('battleTime(7.5)'),'8');assert.ok(e('effectTimeX(.5,0,1,200,800)')>200);assert.ok(e('effectTimeX(.5,0,1,200,800)')<784);
+e('effectFixture.effect_timeline.effects[0].description="Unwanted flavor text";effectFixture.effect_timeline.effects[0].details=["Melee Attack: -5 <safe>"];drawEffects(effectFixture)');n('effects').onmousemove({clientX:50,clientY:118});assert.equal(n('effects-tooltip').hidden,false);assert.match(n('effects-tooltip').innerHTML,/Melee Attack: -5 &lt;safe&gt;/);assert.doesNotMatch(n('effects-tooltip').innerHTML,/<safe>|Unwanted flavor/);
+
+// The game formats configured DPS after model limit, interval, battle scale,
+// intensity and integer truncation. These values never enter measured totals.
+e('globalThis.mortisEffect={health:{damage:8,max_entities:4,interval_s:1,duration_s:-1}};globalThis.leechEffect={health:{damage:67,max_entities:1,interval_s:1,duration_s:13}}');
+assert.equal(e('effectRateLines(mortisEffect,{intensity:1,damage_scale:1}).lines[0]'),'Damage: 16–32 HP/s');
+assert.equal(e('effectRateLines(leechEffect,{intensity:1,damage_scale:1}).lines[0]'),'Damage: 33–67 HP/s');
+assert.equal(e('effectRateLines(leechEffect,{intensity:1.5,damage_scale:1}).lines[0]'),'Damage: 50–100 HP/s');
+assert.equal(e('effectRateLines(mortisEffect,{intensity:1,damage_scale:.75}).lines[0]'),'Damage: 12–24 HP/s');
+assert.equal(e('effectRateLines({...mortisEffect,health:{...mortisEffect.health,interval_s:2}},{intensity:1,damage_scale:1}).lines[0]'),'Damage: 8–16 HP/s');
+assert.equal(e('effectRateLines(leechEffect,{intensity:0,damage_scale:1}).lines[0]'),'Damage: 0–0 HP/s');
+assert.match(e('effectDescription(leechEffect)'),/Base intensity; intensity was not recorded/);
+assert.match(e('effectDescription(leechEffect)'),/Base battle scale; scale was not recorded/);
+assert.match(e('effectDescription(leechEffect,{intensity:1.5,damage_scale:1})'),/intensity: 150%/);
+for(const [fraction,rate] of [[.001,'0.1'],[.0005,'0.1']])assert.equal(e(`effectRateLines({health:{heal_fraction:${fraction},duration_s:-1,interval_s:1}},{intensity:1}).lines[0]`),'Healing: +'+rate+'% maximum HP/s');
+assert.equal(e('effectRateLines({health:{heal_fraction:.001,duration_s:7,interval_s:1,resurrect:true}},{intensity:1.5}).lines[0]'),'Healing: +0.2% maximum HP/s');
+assert.equal(e('effectRateLines({health:{heal_fraction:.001,duration_s:-1,interval_s:2}},{intensity:1}).lines[0]'),'Healing: +0.1% maximum HP every 2s');
+assert.equal(e('effectRateLines({health:{heal_fraction:.001,duration_s:0,interval_s:0}},{intensity:1}).lines[0]'),'Healing: +0.1% maximum HP per application');
+assert.equal(e('effectRateLines({modifiers:[{label:"Melee Attack",how:"add",value:-5},{label:"Speed",how:"mult",value:.8}]},{intensity:1.5}).lines.join("; ")'),'Melee Attack: -7.5; Speed: ×0.7');
+assert.equal(e('effectRateLines({modifiers:[{label:"Winds of Magic recharge",how:"add",value:40,unit:"%"},{label:"Winds of Magic reserves",how:"add",value:.7,unit:" Winds/s"}]},{intensity:1.234567}).lines.join("; ")'),'Winds of Magic recharge: +49.4%; Winds of Magic reserves: +0.9 Winds/s');
+assert.match(e('effectDescription({modifiers:[{label:"Melee Attack",how:"add",value:12.34567}],details:["Lasts 9.87654 seconds"]},{intensity:1.234567})'),/Melee Attack: \+15.2[^]*Lasts 9.9 seconds[^]*Effect intensity: 123.5%/);
+e('globalThis.stackedEffects={effect_timeline:{effects:[{key:"spell",name:"Spirit Leech",source_label:"Spell",...leechEffect},{key:"bound",name:"Spirit Leech",source_label:"Bound spell",...leechEffect}],samples:[[0,[0,1]],[4,[0,1]]],values:[{"0":{intensity:1,damage_scale:1},"1":{intensity:1,damage_scale:1}},{"0":{intensity:1.5,damage_scale:1},"1":{intensity:1,damage_scale:1}}]}}');
+assert.equal(e('effectPlotData(stackedEffects).rows.map(r=>r.label).join("; ")'),'Spirit Leech (Spell); Spirit Leech (Bound spell)');
+assert.equal(e('effectRateLines(effectPlotData(stackedEffects).rows[0],nearestEffectSample(effectPlotData(stackedEffects).rows[0].observations,3)[1]).lines[0]'),'Damage: 50–100 HP/s');
+assert.equal(e('effectRateLines(effectPlotData(stackedEffects).rows[1],nearestEffectSample(effectPlotData(stackedEffects).rows[1].observations,3)[1]).lines[0]'),'Damage: 33–67 HP/s');
+assert.equal(e('effectPlotData({effect_timeline:{effects:[{key:"a",name:"Stack"},{key:"a",name:"Stack"}],samples:[[0,[0,1]]]}}).rows.map(r=>r.label).join("; ")'),'Stack #1; Stack #2');
+
+// The stat card uses recorded endpoints, explicit held values at the end,
+// per-tick exit states, and net fire resistance.
+assert.equal(e('layout[0].id'),'view-8');assert.equal(e('layout.at(-1).id'),'view-6');
+e('globalThis.statFixture={id:"stat-fixture",last:{alive:true},fresh:true,effect_timeline:effectFixture.effect_timeline,statline_timeline:{samples:[{t:0,segment:1,values:{hp:5376,hp_max:6000,models:30,models_max:32,armour:15,leadership:60,speed:50,melee_attack:75,melee_defence:50,weapon_strength:410,charge_bonus:35,spell_resistance:20,missile_resistance:10,fire_resistance:0,fire_weakness:20,physical_resistance:15,ward_save:5,healing_budget_remaining_hp:4500}},{t:4,segment:1,values:{hp:5000,hp_max:6000,models:29,models_max:32,armour:45,melee_attack:95,healing_budget_remaining_hp:4000}},{t:6,segment:2,values:null,state:{recorded:false}},{t:12,segment:2,values:{armour:15,melee_attack:75}}]}};drawEffects(statFixture)');
+const statRow=(key,html=n('statline-card').innerHTML)=>html.match(new RegExp('<div class="statline-row[^\\"]*" data-stat="'+key+'"[^]*?</div>'))[0];
+assert.equal(n('statline-time').textContent,'4s');assert.match(n('statline-models').innerHTML,/statline-down">29<[^]*?\(32\)/);assert.doesNotMatch(n('statline-models').innerHTML,/statline-bar/);
+n('statline-scrubber').oninput({target:{value:'0'}});
+assert.match(n('statline-note').textContent,/Initial stat line/);assert.match(statRow('hp'),/5,376 \/ 6,000/);assert.ok(Math.abs(Number(statRow('hp').match(/width:([\d.]+)%/)[1])-89.6)<1e-9);
+assert.match(statRow('fire_resistance'),/Fire resistance[^]*?-20%/);assert.doesNotMatch(n('statline-card').innerHTML,/Fire weakness/);
+assert.doesNotMatch(n('statline-card').innerHTML,/class="statline-(up|down)"/);
+assert.equal([...n('statline-card').innerHTML.matchAll(/data-stat="([^"]+)"/g)].map(m=>m[1]).join(','),'healing_budget_remaining_hp,hp,armour,leadership,speed,melee_attack,melee_defence,weapon_strength,charge_bonus,spell_resistance,missile_resistance,fire_resistance,physical_resistance,ward_save');
+assert.match(statRow('healing_budget_remaining_hp'),/4,500/);assert.doesNotMatch(statRow('healing_budget_remaining_hp'),/statline-bar/);
+n('statline-scrubber').oninput({target:{value:'3'}});assert.equal(n('statline-time').textContent,'4s');assert.match(statRow('armour'),/class="statline-up">45/);
+assert.doesNotMatch(statRow('hp'),/statline-(up|down)/);assert.match(statRow('hp'),/5,000 \/ 6,000/);
+n('statline-scrubber').oninput({target:{value:'6'}});assert.equal(n('statline-time').textContent,'6s');assert.match(n('statline-note').textContent,/Last recorded/);assert.match(statRow('hp'),/5,000 \/ 6,000/);assert.match(n('statline-panel').className,/statline-tone-inactive/);
+n('statline-next').onclick();assert.equal(n('statline-time').textContent,'12s');assert.doesNotMatch(statRow('armour'),/statline-(up|down)/);
+n('statline-scrubber').onkeydown({key:'End',preventDefault(){}});assert.equal(n('statline-next').disabled,true);assert.match(statRow('hp'),/5,000 \/ 6,000/);assert.match(n('statline-note').textContent,/Last recorded/);
+n('statline-scrubber').onkeydown({key:'Home',preventDefault(){}});assert.match(n('statline-note').textContent,/Initial stat line/);
+n('effects').onmousemove({clientX:e('effectTimeX(0,0,12,240,800)'),clientY:61});assert.equal(n('statline-time').textContent,'0s');assert.equal(n('statline-marker').hidden,false);
+const changed=e('statlineCardMarkup(statFixture,{values:{hp:4000,hp_max:6000,armour:5,leadership:60,speed:49.999,fire_resistance:10,fire_weakness:50}})');
+assert.match(statRow('armour',changed),/class="statline-down">5/);assert.doesNotMatch(statRow('leadership',changed),/statline-(up|down)/);assert.doesNotMatch(statRow('speed',changed),/statline-(up|down)/);
+assert.match(statRow('fire_resistance',changed),/statline-down">-40%/);
+const noWeakness=e('statlineCardMarkup(statFixture,{values:{fire_resistance:0,fire_weakness:0}})');assert.match(statRow('fire_resistance',noWeakness),/statline-up">0%/);
+const partial=e('statlineCardMarkup({statline_timeline:{baseline:{t:0,values:{armour:null}},samples:[]}},{values:{armour:45,hp:0,hp_max:6000},state:{healing_budget_unlimited:true}})');
+assert.doesNotMatch(statRow('armour',partial),/statline-(up|down)/);assert.match(statRow('hp',partial),/width:0%/);assert.match(statRow('healing_budget_remaining_hp',partial),/Unlimited/);
+e('globalThis.endFixture={...statFixture,last:{alive:false,left_battlefield:true},fresh:false,terminal_result:{status:"Dead",hp:0,models:0,observed_s:20},statline_timeline:{...statFixture.statline_timeline,samples:[...statFixture.statline_timeline.samples,{t:20,values:null,state:{recorded:false}}]}}');
+assert.equal(e('statlineSnapshot(endFixture,20,endFixture.statline_timeline.samples,{t0:0,t1:20}).values.armour'),15);
+assert.equal(e('statlineSnapshot(endFixture,20,endFixture.statline_timeline.samples,{t0:0,t1:20}).values.hp'),0);
+assert.equal(e('statlineSnapshot(endFixture,20,endFixture.statline_timeline.samples,{t0:0,t1:20}).values.models'),0);
+const dead=e('statlineCardMarkup(endFixture,statlineSnapshot(endFixture,20,endFixture.statline_timeline.samples,{t0:0,t1:20}))');assert.match(statRow('hp',dead),/Dead · 0 \/ 6,000/);assert.doesNotMatch(statRow('hp',dead),/5,000/);
+assert.equal(e('statlineSnapshot(endFixture,4,endFixture.statline_timeline.samples,{t0:0,t1:20}).health_state.label'),null);
+assert.equal(e('statlineHealthState({}, {values:{hp:100},state:{routing:true}}).label'),'Routed');
+assert.equal(e('statlineHealthState({}, {values:{hp:100},state:{shattered:true}}).label'),'Shattered');
+assert.equal(e('statlineHealthState({}, {values:{hp:100},state:{withdrawing:true}}).label'),'Retreating');
+assert.equal(e('statlineHealthState({...endFixture,terminal_result:{status:"Retreated",hp:3000,models:20}},endFixture.statline_timeline.samples.at(-1),true).label'),'Retreated');
+assert.equal(e('statlineHealthState({...endFixture,terminal_result:null},endFixture.statline_timeline.samples.at(-1),true).label'),'Dead / retreated');
+assert.equal(e('statlineHealthState({last:{alive:true},fresh:false},{values:null,state:{recorded:false}},true).label'),'No longer recorded');
+assert.equal(e('statlineHealthState({first:{spawned:true},last:{alive:true},fresh:false},{values:null,state:{recorded:false}},true).label'),'Dead');
+assert.equal(e('statlineSnapshot({statline_timeline:{baseline:{t:60,values:{armour:15}}}},0,[{t:60,values:{armour:45}}],{t0:0,t1:120}).values.armour'),15);
+assert.equal(e('statlineBaseline({statline_timeline:{samples:[{t:60,values:null},{t:61,values:{armour:45}}]}}).t'),61);
+
+// Unavailable samples carry only earlier values. A final death/retreat may
+// decorate the missing tail, while temporary gaps never reveal future results.
+e('globalThis.tailDead={...endFixture,statline_timeline:{samples:[{t:0,values:{hp:6000,hp_max:8000,models:32,models_max:32,armour:15}},{t:4,values:{hp:3000,hp_max:8000,models:20,models_max:32,armour:45},state:{alive:true}},{t:5,values:null,state:{recorded:false}},{t:8,values:null,state:{recorded:false}}]}}');
+const tailBefore=e('JSON.stringify(tailDead)');
+assert.equal(e('statlineSnapshot(tailDead,5,tailDead.statline_timeline.samples,{t0:0,t1:20}).values.armour'),45);
+assert.equal(e('statlineSnapshot(tailDead,5,tailDead.statline_timeline.samples,{t0:0,t1:20}).values.hp'),0);
+assert.equal(e('statlineSnapshot(tailDead,7,tailDead.statline_timeline.samples,{t0:0,t1:20}).values.models'),0);
+assert.equal(e('statlineTone(statlineSnapshot(tailDead,5,tailDead.statline_timeline.samples,{t0:0,t1:20}))'),'statline-tone-inactive');
+e('globalThis.tailRetreated={...tailDead,terminal_result:{status:"Retreated",hp:2000,models:10,observed_s:20}}');
+const retreatedPoint=e('statlineSnapshot(tailRetreated,7,tailRetreated.statline_timeline.samples,{t0:0,t1:20})');
+assert.equal(retreatedPoint.values.hp,3000);assert.equal(retreatedPoint.values.models,20);assert.equal(retreatedPoint.values.armour,45);assert.equal(retreatedPoint.health_state.label,'Retreated');
+const retreatedCard=e('statlineCardMarkup(tailRetreated,statlineSnapshot(tailRetreated,7,tailRetreated.statline_timeline.samples,{t0:0,t1:20}))');assert.match(statRow('hp',retreatedCard),/Retreated · 3,000 \/ 8,000/);
+assert.equal(e('statlineSnapshot(tailDead,4,tailDead.statline_timeline.samples,{t0:0,t1:20}).health_state.label'),null);
+assert.equal(e('statlineSnapshot(endFixture,6,endFixture.statline_timeline.samples,{t0:0,t1:20}).values.hp'),5000);
+assert.equal(e('statlineSnapshot(endFixture,6,endFixture.statline_timeline.samples,{t0:0,t1:20}).health_state.label'),null);
+assert.equal(e('JSON.stringify(tailDead)'),tailBefore);
+for(const [flag,label]of [['routing','Routed'],['shattered','Shattered'],['withdrawing','Retreating']]){
+ const healthMarkup=e('statlineCardMarkup(statFixture,{values:{hp:3000,hp_max:8000},state:{'+flag+':true}})');assert.match(statRow('hp',healthMarkup),new RegExp(label+' · 3,000 / 8,000'));
+}
+assert.equal(e('statlineTone({health_state:{label:"Routed"}})'),'statline-tone-routing');
+assert.equal(e('statlineTone({health_state:{label:"Shattered"}})'),'statline-tone-routing');
+assert.equal(e('statlineTone({health_state:{label:"Retreated"}})'),'statline-tone-inactive');
+assert.equal(e('statlineTone({health_state:{label:null}})'),'');
+e('drawEffects({})');assert.match(n('statline-note').textContent,/not recorded/);assert.equal(n('statline-scrubber').disabled,true);
+
+// Each activity joins only consecutive true samples in the same segment.
+e('globalThis.activityFixture={last:{},ammo:{primary:{initial:10}},state_seconds:{firing:0,idle:0},activity_timeline:{samples:[{t:0,segment:0,values:{firing:true,idle:false}},{t:4,segment:0,values:{firing:true,idle:false}},{t:8,segment:0,values:{firing:null,idle:true}},{t:12,segment:0,values:{firing:true,idle:true}},{t:16,segment:1,values:{firing:true,idle:true}},{t:20,segment:1,values:{firing:false,idle:false}}]}}');
+assert.equal(e('JSON.stringify(activityPlotData(activityFixture).rows.find(r=>r.key==="firing").runs)'),JSON.stringify([[0,4],[12,12],[16,16]]));
+assert.equal(e('JSON.stringify(activityPlotData(activityFixture).rows.find(r=>r.key==="idle").runs)'),JSON.stringify([[8,12],[16,16]]));
+operations.length=0;e('drawActivities(activityFixture)');assert.ok(operations.some(o=>o.method==='fillText'&&o.args[0]==='Firing'));
+e('drawEffects({})');assert.match(n('effects-summary').textContent,/not recorded/);
+e('drawEffects({effect_timeline:{effects:[],samples:[[0,null]]}})');assert.match(n('effects-summary').textContent,/No readable/);
+e('drawEffects({effect_timeline:{effects:[],samples:[[0,[]]]}})');assert.match(n('effects-summary').textContent,/No buffs/);
+e('setExplanationsHidden(false)');assert.match(n('effects-heading').title,/battle times/);
+e('setExplanationsHidden(true)');assert.equal(n('effects-heading').title,'');e('setExplanationsHidden(false)');
+
 assert.equal(e("JSON.stringify(MOVEMENT_BOUNDS)"),JSON.stringify(data.movement_bounds));
 assert.equal(e('seconds(12.6)'),'13');assert.equal(e('seconds(12.4)'),'12');
-assert.match(e('HEALING_CAP_TIP'),/100%.*150%/);assert.match(e('cellTip("gold_damage")'),/500 gold per level/);assert.match(e('cellTip("trade")'),/500 gold per level/);
+assert.match(e('HEALING_CAP_TIP'),/normal base is 75%/);assert.match(e('cellTip("gold_damage")'),/Enemy gold/);assert.match(e('cellTip("trade")'),/unit value/);assert.match(e('CHARACTER_VALUE_TIP'),/500 gold per level/);
 assert.equal(e('unitWorth({id:"level-test",name:"x",last:{has_character_rank:true,character_level:7}}).value'),3500);
 assert.equal(e('unitWorth({id:"level-test",name:"x",last:{has_character_rank:true}}).value'),500);
 assert.equal(e('statusName({fresh:false,last:{left_battlefield:true}})'),"Dead / retreated");
@@ -146,7 +280,7 @@ for(const label of ['25','50','75'])assert.ok(!operations.some(o=>o.method==='fi
 assert.ok(!operations.some(o=>o.method==='fillText'&&String(o.args[0]).includes('%')));
 operations.length=0;e("plot('graph-0',[{t:0,fatigue_state:0,segment:1},{t:10,fatigue_state:4,segment:1}],['fatigue_state'],['#fff'])");assert.ok(operations.some(o=>o.method==='fillText'&&o.args[0]==='Very tired'));assert.equal(operations.filter(o=>o.method==='setLineDash'&&o.args[0]?.length===2).length,7);
 e("showView('unit');openMini(0)");assert.equal(e('minis.length'),1);assert.equal(e('chartOccupied(selected,graphMetrics[0],"main-0")'),false);assert.ok(!n('unit-panels').innerHTML.includes('chart-in-mini'));assert.equal(e('chartOccupied(selected,graphMetrics[0],minis[0].id)'),false);assert.ok(!r.windows[0].document.body.innerHTML.includes('already shown'));
-assert.ok(r.windows[0].document.getElementById('mini-note').textContent.length>40);e('setExplanationsHidden(true)');assert.equal(r.windows[0].document.getElementById('mini-note').hidden,true);e('renderMini(minis[0])');assert.equal(r.windows[0].document.getElementById('mini-note').hidden,true);e('setExplanationsHidden(false)');assert.equal(r.windows[0].document.getElementById('mini-note').hidden,false);
+assert.ok(r.windows[0].document.getElementById('mini-metric').title.length>20);e('setExplanationsHidden(true)');assert.equal(r.windows[0].document.getElementById('mini-note').hidden,true);e('renderMini(minis[0])');assert.equal(r.windows[0].document.getElementById('mini-note').hidden,true);e('setExplanationsHidden(false)');assert.equal(r.windows[0].document.getElementById('mini-note').hidden,false);assert.ok(r.windows[0].document.getElementById('mini-metric').title.length>20);
 let mainBefore=e('graphMetrics[0]');let popupBefore=e('minis[0].metric');
 n('unit-panels').onchange({target:{dataset:{graph:'0'},value:'fatigue_points'}});assert.equal(e('minis[0].metric'),popupBefore);
 n('unit-panels').onchange({target:{dataset:{graph:'0'},value:mainBefore}});assert.equal(e('graphMetrics[0]'),mainBefore);
@@ -164,8 +298,9 @@ assert.equal(e('lineAt([{t:0,damage:10,segment:1},{t:10,damage:30,segment:2}],6,
 assert.equal(e('lineAt([{t:0,damage:null,segment:1},{t:10,damage:30,segment:1}],4,"damage",{})'),null);
 assert.equal(e('lineAt([{t:0,fatigue_state:0,segment:1},{t:10,fatigue_state:4,segment:1}],6,"fatigue_state",{}).value'),4);
 assert.equal(e('lineAt([],5,"damage",{})'),null);
-operations.length=0;e('drawMovement({history:[{t:0,segment:1,position_segment:1,xyz:[0,0,0]},{t:1,segment:1,position_segment:1,xyz:[1,0,1]}]})');assert.deepEqual(operations.filter(o=>o.method==='arc').map(o=>o.args[2]),[7,11]);assert.ok(operations.some(o=>o.method==='fillRect'));assert.ok(operations.some(o=>o.method==='lineTo'));
+operations.length=0;e('drawMovement({history:[{t:0,segment:1,position_segment:1,xyz:[0,0,0]},{t:1,segment:1,position_segment:1,xyz:[1,0,1]}]})');assert.deepEqual(operations.filter(o=>o.method==='arc'),[]);assert.equal(n('movement-scrubber'),null);assert.ok(n('movement-zoom-in'));assert.ok(n('movement-position-0'));assert.ok(operations.some(o=>o.method==='fillRect'));assert.ok(operations.some(o=>o.method==='lineTo'));
 
+e('D.end_s=10');
 assert.equal(e('graphNumber(47.8,"damage")'),'48');assert.equal(e('graphNumber(47.28,"elevation")'),'47.28');
 e("plot('graph-0',[{t:0,damage:0,segment:1},{t:10,damage:100.4,segment:1}],['damage'],['#fff'],{id:'hover-test'})");
 n('graph-0').onmousemove({clientX:400,clientY:100});assert.equal(n('graph-0-tooltip').hidden,false);assert.match(n('graph-0-tooltip').innerHTML,/Time: 0s/);assert.match(n('graph-0-tooltip').innerHTML,/Damage dealt: <b>0/);assert.equal(n('graph-0-cursor').style.left,'52px');
@@ -174,4 +309,156 @@ assert.equal(n('graph-0').onwheel,null);assert.equal(n('graph-0').onmousedown,nu
 e("plot('graph-0',[{t:0,xyz:[0,47.28,0],segment:1}],['elevation'],['#fff'],{id:'hover-test'})");n('graph-0').onmousemove({clientX:400,clientY:100});assert.match(n('graph-0-tooltip').innerHTML,/Elevation: <b>47.28/);
 e("plot('graph-0',[{t:0,damage:null,models:2,segment:1},{t:10,damage:30,models:2,segment:2}],['damage','models'],['#fff','#eee'],{id:'hover-test'})");n('graph-0').onmousemove({clientX:400,clientY:100});assert.match(n('graph-0-tooltip').innerHTML,/No recorded value/);
 n('graph-0').onmouseleave();assert.equal(n('graph-0-tooltip').hidden,true);
-console.log('Report checks pass: nearest recorded sample/time, missing values, whole-number graph values except elevation, removed zoom, unlabeled guides, independent popouts and existing report interactions. Browser visual layout not assessed.');
+// Full-resolution spatial deltas, continuity and mixed-side comparisons.
+assert.equal(e('layout.slice(0,3).map(p=>p.id).join(",")'),'view-8,view-7,view-3');
+assert.equal(e('MOVEMENT_MEASURES.length'),6);
+e(`globalThis.savedUnits=D.units;globalThis.spatialFixture=Array.from({length:5},(_,i)=>({id:'spatial-'+i,name:'Spatial '+i,side:i%2?'Enemy':'Allied',first:{},last:{},history:[],spatial_timeline:{samples:[{t:0,segment:1,position_segment:1,xyz:[0,0,0],damage:10,gold_damage:1,kills:0,damage_taken_estimate:5,healing_received_estimate:0},{t:4,segment:1,position_segment:1,xyz:[56,0,0],damage:30,gold_damage:5,kills:2,damage_taken_estimate:15,healing_received_estimate:3},{t:8,segment:2,position_segment:2,xyz:[112,0,0],damage:100},{t:12,segment:2,position_segment:2,xyz:null,damage:150},{t:16,segment:2,position_segment:2,xyz:[168,0,0],damage:200},{t:20,segment:2,position_segment:2,xyz:[196,0,0],damage:1}]}}));D.units=spatialFixture;globalThis.spatialBefore=JSON.stringify(spatialFixture);globalThis.testXY=p=>[p.xyz[0],p.xyz[2]]`);
+assert.equal(e('Array.from(spatialCells([spatialFixture[0]],testXY,"damage").cells.values()).reduce((n,c)=>n+c.amount,0)'),20);
+assert.equal(e('spatialCells([spatialFixture[0]],testXY,"damage").cells.get("2,0").amount'),20);
+assert.equal(e('spatialCells([spatialFixture[0]],testXY,"occupancy").cells.get("0,0").amount'),4);
+for(const [metric,value] of [['gold_damage',4],['kills',2],['damage_taken_estimate',10],['healing_received_estimate',3]])assert.equal(e('Array.from(spatialCells([spatialFixture[0]],testXY,'+JSON.stringify(metric)+').cells.values()).reduce((n,c)=>n+c.amount,0)'),value);
+assert.equal(e('spatialCells([{history:[{t:0,xyz:[]},{t:4,xyz:[0,0,0]}]}],testXY).comparable'),0);
+assert.equal(e('setMovementComparison(spatialFixture[0],0,"spatial-0")'),false);
+assert.equal(e('setMovementComparison(spatialFixture[0],0,"invalid")'),false);
+assert.equal(e('setMovementComparison(spatialFixture[0],0,"spatial-1")'),true);
+assert.equal(e('setMovementComparison(spatialFixture[0],1,"spatial-1")'),false);
+assert.equal(e('setMovementComparison(spatialFixture[0],1,"spatial-2")'),true);
+assert.equal(e('setMovementComparison(spatialFixture[0],2,"spatial-3")'),true);
+assert.equal(e('setMovementComparison(spatialFixture[0],3,"spatial-4")'),false);
+assert.equal(e('movementUnits(spatialFixture[0]).length'),4);
+operations.length=0;e('drawMovement(spatialFixture[0])');
+assert.match(n('movement-comparisons').innerHTML,/Enemy/);
+assert.ok(operations.some(o=>o.method==='set:fillStyle'&&String(o.args[0]).startsWith('rgba(75,220,125,')));
+assert.ok(operations.some(o=>o.method==='set:fillStyle'&&String(o.args[0]).startsWith('rgba(240,80,80,')));
+e('movementState(spatialFixture[0]).others=["spatial-2","spatial-4",""]');operations.length=0;e('drawMovement(spatialFixture[0])');
+assert.ok(operations.some(o=>o.method==='set:fillStyle'&&String(o.args[0]).startsWith('rgba(225,233,238,')));
+assert.ok(!operations.some(o=>o.method==='arc'));
+assert.equal(e('JSON.stringify(spatialFixture)===spatialBefore'),true);
+e('D.units=savedUnits;D.end_s=20;selectUnit(D.units[0].id,true)');
+// One hover time reaches every chart and owned popout; nearest actual sample is explicit.
+e('publishTime(8)');
+for(const id of ['effects','activities','movement','movement-time','winds','graph-0','graph-1','graph-2','graph-3'])assert.equal(n(id)._sharedTime,8,id);
+assert.equal(n('movement')._sharedTime,8);
+e('openMini(0);openMini(1)');
+let syncWin=r.windows.at(-2),otherSyncWin=r.windows.at(-1);
+assert.equal(syncWin.document.getElementById('mini-chart')._sharedTime,8);
+syncWin.document.getElementById('mini-chart').onmousemove({clientX:500,clientY:90});
+assert.equal(n('effects')._sharedTime,e('sharedTime'));
+assert.equal(n('movement')._sharedTime,e('sharedTime'));
+assert.equal(otherSyncWin.document.getElementById('mini-chart')._sharedTime,e('sharedTime'));
+e('D.end_s=120;publishTime(119);renderPanels()');assert.equal(n('movement')._sharedTime,119);assert.equal(Number(n('statline-scrubber').value),e('statlineSelection.get(D.units[0])'));assert.ok(Number(n('statline-scrubber').value)>100);
+e(`plot('graph-0',[],['damage'],['#fff'],D.units[0]);publishTime(16)`);
+assert.equal(n('graph-0')._sharedTime,16);assert.equal(n('graph-0-tooltip').hidden,true);
+assert.equal(n('graph-0').onmousemove,null);
+e('minis.slice().forEach(m=>m.win.close())');
+assert.equal(e('Array.from(synchronizedGraphs.values()).some(g=>g.doc.defaultView?.closed)'),false);
+// All-active hover lists, single-row mode, retreat expansion and status-only colors.
+// Baseline yellow never grows; gains append green and losses cover the missing yellow.
+assert.match(e('statlineBarMarkup(70,50,100)'),/statline-base" style="width:50%/);
+assert.match(e('statlineBarMarkup(70,50,100)'),/statline-gain" style="left:50%;width:20%/);
+assert.match(e('statlineBarMarkup(30,50,100)'),/statline-base" style="width:50%/);
+assert.match(e('statlineBarMarkup(30,50,100)'),/statline-loss" style="left:30%;width:20%/);
+assert.doesNotMatch(e('statlineBarMarkup(50,50,100)'),/statline-gain|statline-loss/);
+assert.doesNotMatch(e('statlineBarMarkup(null,50,100)'),/statline-gain|statline-loss/);
+assert.doesNotMatch(e('statlineBarMarkup(50,null,100)'),/statline-gain|statline-loss/);
+assert.match(e('statlineBarMarkup(200,50,100)'),/statline-gain" style="left:50%;width:50%/);
+assert.match(e('statlineBarMarkup(-20,50,100)'),/statline-loss" style="left:0%;width:50%/);
+assert.doesNotMatch(e('statlineBarMarkup(50,50,0)'),/NaN|Infinity/);
+assert.equal(e('simplifiedEffectTooltip'),false);
+assert.equal(n('simplified-effects-tooltip').checked,false);
+e(`globalThis.deltaFixture={statline_timeline:{baseline:{t:0,values:{hp:6000,models:32,healing_budget_remaining_hp:4500,armour:15,melee_attack:75,melee_defence:50,fire_resistance:0,fire_weakness:20}},samples:[{t:0,segment:1,values:{hp:6000,armour:15}},{t:4,segment:1,values:{hp:5000,models:29,healing_budget_remaining_hp:4000,armour:45,melee_attack:95,melee_defence:30,fire_resistance:10,fire_weakness:50}}]}}`);
+let deltas=e('simplifiedEffectContent(deltaFixture,4)');
+for(let fragment of ['Time: 4s','Armour','+30','Melee Attack','+20','Melee Defence','-20','Fire resistance','-20%'])assert.ok(deltas.includes(fragment),fragment);
+assert.doesNotMatch(deltas,/HP|Models|Healing budget|5000|5,000|Buff /);
+assert.match(e('simplifiedEffectContent(deltaFixture,0)'),/No recorded stat changes/);
+assert.match(e('simplifiedEffectContent({statline_timeline:{baseline:{values:{}},samples:[{t:4,values:{armour:45}}]}},4)'),/Stat changes unavailable/);
+assert.match(e('simplifiedEffectContent({statline_timeline:{baseline:{values:{speed:50}},samples:[{t:4,values:{speed:49.999}}]}},4)'),/No recorded stat changes/);
+assert.match(e('simplifiedEffectContent({statline_timeline:{baseline:{values:{speed:50}},samples:[{t:4,values:{speed:50.123456}}]}},4)'),/Speed[^]*\+0.1/);
+n('simplified-effects-tooltip').checked=true;n('simplified-effects-tooltip').onchange();
+assert.equal(e('simplifiedEffectTooltip'),true);assert.equal(n('show-active-flags').disabled,true);assert.equal(n('show-activity-flags').disabled,false);
+e('renderPanels()');assert.equal(n('simplified-effects-tooltip').checked,true);
+let simplified=e('effectTooltipContent([{label:"Hidden buff",polarity:"positive"}],[4,[0]],null,true,deltaFixture)');
+assert.match(simplified,/Armour/);assert.doesNotMatch(simplified,/Hidden buff|buffs|debuffs/);
+assert.equal(e('showAllActivityFlags'),true);
+assert.match(e('effectTooltipContent([{label:"Hidden buff"}],[4,null],null,false,deltaFixture)'),/Armour/);
+n('simplified-effects-tooltip').checked=false;n('simplified-effects-tooltip').onchange();
+// Full effects lists get two columns only when one column exceeds the viewport.
+e(`globalThis.columnMock={style:{}};globalThis.fullTip={style:{},scrollHeight:1000,querySelector:()=>columnMock};fitEffectTooltip(fullTip,900,600)`);
+assert.equal(e('columnMock.style.columnCount'),'2');assert.equal(e('fullTip.style.width'),'720px');
+e('fullTip.scrollHeight=200;fitEffectTooltip(fullTip,900,600)');assert.equal(e('columnMock.style.columnCount'),'1');assert.equal(e('fullTip.style.width'),'350px');
+e('fullTip.scrollHeight=1000;fitEffectTooltip(fullTip,320,400)');assert.equal(e('fullTip.style.width'),'304px');
+assert.equal(e('showAllActiveFlags'),true);
+assert.equal(n('show-active-flags').checked,true);
+e(`globalThis.fiveEffects={id:'five-effects',effect_timeline:{effects:Array.from({length:5},(_,i)=>({key:'buff-'+i,name:'Buff '+i,polarity:i%2?'negative':'positive',details:['Effect '+i]})),samples:[[0,[0,1,2,3,4]],[4,[1,2,3,4]],[8,null]]}};drawEffects(fiveEffects)`);
+let fiveTooltip=e('effectTooltipContent(effectPlotData(fiveEffects).rows,[0,[0,1,2,3,4]],effectPlotData(fiveEffects).rows[0])');
+assert.match(fiveTooltip,/3 buffs/);assert.match(fiveTooltip,/2 debuffs/);for(let i=0;i<5;i++)assert.match(fiveTooltip,new RegExp('Buff '+i));
+assert.match(e('effectTooltipContent(effectPlotData(fiveEffects).rows,[8,null],null)'),/Unknown \/ unreadable/);
+assert.doesNotMatch(e('effectTooltipContent(effectPlotData(fiveEffects).rows,[8,null],null)'),/0 active/);
+assert.match(e('effectTooltipContent(effectPlotData(fiveEffects).rows,[0,[]],null)'),/0 buffs · 0 debuffs/);
+n('show-active-flags').checked=false;n('show-active-flags').onchange();assert.equal(e('showAllActiveFlags'),false);
+let oneTooltip=e('effectTooltipContent(effectPlotData(fiveEffects).rows,[4,[1,2,3,4]],effectPlotData(fiveEffects).rows[0])');
+assert.match(oneTooltip,/Buff 0 · Inactive/);assert.doesNotMatch(oneTooltip,/Buff [1-4]/);
+assert.match(e('activityTooltipContent({t:4,values:{idle:true,melee:true,grounded:true}},{key:"melee",label:"Melee combat"},false)'),/Melee combat[^]*Active/);
+n('show-active-flags').checked=true;n('show-active-flags').onchange();
+let flags=e('activityTooltipContent({t:4,values:{idle:false,melee:true,grounded:true,routing:true,retreating_combined:true,idle_after_rally:true}},{key:"melee",label:"Melee combat"})');
+assert.match(flags,/<b>Time: 4s<\/b>/);assert.doesNotMatch(flags,/active flags/);for(let label of ['Melee combat','Grounded','Routing'])assert.match(flags,new RegExp(label));assert.doesNotMatch(flags,/Retreating \(combined\)|Idling time/);
+assert.match(e('activityTooltipContent({t:4,values:null},{key:"melee",label:"Melee combat"})'),/Unknown \/ unreadable/);
+assert.doesNotMatch(e('activityTooltipContent({t:4,values:{melee:true,grounded:true}},{key:"melee",label:"Melee combat"},true,{last:{},ever_flying:false})'),/Grounded/);
+assert.match(e('activityTooltipContent({t:4,values:{melee:true,grounded:true}},{key:"melee",label:"Melee combat"},true,{last:{},ever_flying:true})'),/Grounded/);
+e(`globalThis.retreatFixture={id:'retreat-fixture',last:{},ever_flying:true,ammo:{primary:{initial:10}},state_seconds:Object.fromEntries(ACTIVITY_ORDER.map(k=>[k,0])),activity_timeline:{samples:[{t:0,segment:1,values:{routing:true,withdrawing:false,shattered:false}},{t:4,segment:1,values:{routing:false,withdrawing:true,shattered:false}},{t:8,segment:1,values:{routing:false,withdrawing:false,shattered:true}}]}};drawActivities(retreatFixture)`);
+assert.equal(e('activityPlotData(retreatFixture).rows.slice(0,5).map(r=>r.key).join(",")'),'idle,walking,running,melee,firing');
+assert.equal(e('activityPlotData(retreatFixture).rows.some(r=>r.key==="routing")'),false);
+assert.equal(e('JSON.stringify(activityPlotData(retreatFixture).rows.find(r=>r.key==="retreating_combined").runs)'),'[[0,8]]');
+n('activity-retreat-toggle').onclick();
+assert.equal(n('activity-retreat-toggle')['aria-expanded'],'true');
+assert.equal(e('activityPlotData(retreatFixture).rows.some(r=>r.key==="retreating_combined")'),false);
+assert.equal(e('activityPlotData(retreatFixture).rows.slice(5,8).map(r=>r.key).join(",")'),'routing,withdrawing,shattered');
+n('activity-retreat-toggle').onclick();assert.equal(n('activity-retreat-toggle')['aria-expanded'],'false');
+assert.equal(e('activityValue({values:{routing:null,withdrawing:false,shattered:false}},"retreating_combined")'),null);
+assert.equal(e('statlineLineColor({}, {values:{hp:100},state:{alive:true}})'),'#c9ae70');
+for(let flag of ['routing','withdrawing','shattered'])assert.equal(e('statlineLineColor({}, {values:{hp:100},state:{'+flag+':true}})'),'#e3e7ea');
+for(let state of ['{alive:false}','{terminal_status:"Dead"}','{terminal_status:"Retreated"}','{recorded:false}'])assert.equal(e('statlineLineColor({}, {values:{hp:0},state:'+state+'})'),'#737b82');
+assert.equal(e('statlineTone({health_state:{label:"Retreating"}})'),'statline-tone-routing');
+assert.doesNotMatch(script,/Number of landings|Observed rallies \/ landings/);
+// Separate flags, five tooltip states, global off switch, restored explanations and race labels.
+e('selectUnit(D.units[0].id,true);graphMetrics[0]="damage";renderPanels();D.end_s=20');
+assert.match(n('unit-panels').innerHTML,/<h3>Damage dealt<\/h3>/);
+assert.equal(e('metricTitle("healing_cap_remaining")'),'Max healing cap');
+assert.match(n('movement-comparisons').innerHTML,/Compare unit 2/);assert.match(n('movement-comparisons').innerHTML,/Compare unit 4/);
+assert.doesNotMatch(n('unit-panels').innerHTML,/Movement and \(/);
+assert.ok(markup.indexOf('id="show-graph-tooltips"')<markup.indexOf('id="unit-value"'));
+assert.ok(markup.indexOf('id="hide-graph-explanations"')<markup.indexOf('id="unit-value"'));
+n('show-activity-flags').checked=false;n('show-activity-flags').onchange();
+assert.equal(e('showAllActivityFlags'),false);assert.equal(e('showAllActiveFlags'),true);
+assert.match(e('activityTooltipContent({t:1,values:{melee:false,grounded:true}},{key:"melee",label:"Melee combat"})'),/Inactive/);
+e(`plot('graph-0',[{t:0,damage:0},{t:20,damage:100}],['damage'],['#fff'],D.units[0]);tooltipCorner=0`);
+n('graph-0').onmousemove({clientX:400,clientY:100});assert.equal(n('graph-0-tooltip').hidden,false);
+for(let expected of [1,2,3,4,0]){n('graph-0').onclick({clientX:400,clientY:100});assert.equal(e('tooltipCorner'),expected);assert.equal(n('graph-0-tooltip').hidden,expected===4)}
+n('graph-0').onmouseleave();assert.equal(n('graph-0-tooltip').hidden,true);
+assert.ok(e('Array.from(synchronizedGraphs.values()).every(g=>!g.doc.getElementById(g.id+"-tooltip")||g.doc.getElementById(g.id+"-tooltip").hidden)'));
+n('show-graph-tooltips').onchange({target:{checked:false}});for(let id of ['show-active-flags','show-activity-flags','simplified-effects-tooltip'])assert.equal(n(id).disabled,true);n('graph-0').onmousemove({clientX:400,clientY:100});assert.equal(n('graph-0-tooltip').hidden,true);
+n('show-graph-tooltips').onchange({target:{checked:true}});for(let id of ['show-active-flags','show-activity-flags','simplified-effects-tooltip'])assert.equal(n(id).disabled,false);assert.equal(e('showAllActivityFlags'),false);n('graph-0').onmousemove({clientX:400,clientY:100});assert.equal(n('graph-0-tooltip').hidden,false);
+e('setExplanationsHidden(false)');assert.ok(n('graph-note-0').textContent.length>10);assert.equal(n('graph-note-0').hidden,false);
+e('setExplanationsHidden(true)');assert.equal(n('graph-note-0').hidden,true);e('setExplanationsHidden(false)');
+e(`globalThis.armyBackup={units:D.units,armies:D.armies,info:A.unit_info,races:A.race_names};D.armies=[{last:{id:'own',side:'Allied'}},{last:{id:'ally',side:'Allied'}},{last:{id:'enemy1',side:'Enemy'}},{last:{id:'enemy2',side:'Enemy'}}];D.units=D.armies.map((a,i)=>({id:'lord'+i,army:a.last.id,side:a.last.side,first:{controlled:i===0},last:{}}));A.unit_info=Object.fromEntries(D.units.map((u,i)=>[u.id,{caste:'lord',culture:['vmp','hef','nur','emp'][i]}]));A.race_names={names:{vmp:'Vampire Counts',hef:'High Elves',nur:'Nurgle',emp:'The Empire'}}`);
+assert.equal(e('armyLabel(D.armies[0],0)'),'Own army');assert.equal(e('armyLabel(D.armies[1],1)'),'Allied army (High Elves)');assert.equal(e('armyLabel(D.armies[2],2)'),'Enemy army (Nurgle)');assert.equal(e('armyLabel(D.armies[3],3)'),'Enemy army (The Empire)');
+e('D.units=armyBackup.units;D.armies=armyBackup.armies;A.unit_info=armyBackup.info;A.race_names=armyBackup.races;clearGraphHover()');
+for(let text of ['Green: increased','Green: buff','Move along Statline or drag','Bars join consecutive active samples. Missing readings','Listed effects (game files)','Configured values, not measured','Present between detections','No listed effects found'])assert.ok(!script.includes(text),text);
+// Map zoom preserves bin totals, anchors the pointer, and leaves the timeline synchronized.
+assert.doesNotMatch(n('unit-panels').innerHTML,/movement-scrubber|movement-prev|movement-next/);
+e('globalThis.zoomState={zoom:1,panX:0,panY:0};globalThis.zoomPoint=[500,200];zoomMovement(zoomState,2,800,360,500,200)');
+assert.equal(e('zoomState.zoom'),2);assert.equal(e('JSON.stringify(movementViewPoint(zoomPoint,zoomState,800,360))'),'[500,200]');
+e('zoomMovement(zoomState,100,800,360)');assert.equal(e('zoomState.zoom'),8);e('zoomMovement(zoomState,.001,800,360)');assert.equal(e('zoomState.zoom'),1);
+e('selectUnit(D.units[0].id,true);publishTime(8)');
+let mapBefore=e('JSON.stringify(D.units[0].spatial_timeline)');
+n('movement-zoom-in').onclick();assert.ok(e('movementState(D.units[0]).zoom')>1);assert.match(n('movement-zoom-level').textContent,/140%/);assert.equal(n('movement')._sharedTime,8);
+assert.equal(e('JSON.stringify(D.units[0].spatial_timeline)'),mapBefore);
+n('movement-zoom-reset').onclick();assert.equal(e('movementState(D.units[0]).zoom'),1);assert.equal(n('movement-zoom-level').textContent,'100%');
+let prevented=false;n('movement').onwheel({clientX:400,clientY:180,deltaY:-100,preventDefault(){prevented=true}});assert.equal(prevented,true);assert.ok(e('movementState(D.units[0]).zoom')>1);
+let oldCorner=e('tooltipCorner');n('movement').onpointerdown({button:0,clientX:400,clientY:180,pointerId:1});n('movement').onpointermove({clientX:420,clientY:200,pointerId:1});n('movement').onpointerup({pointerId:1});n('movement').onclick({clientX:420,clientY:200});assert.equal(e('tooltipCorner'),oldCorner);
+n('movement-zoom-reset').onclick();n('movement-time').onkeydown({key:'Home',preventDefault(){}});assert.equal(n('movement')._sharedTime,e('D.timeline_start_s??D.start_s??0'));
+let rates=JSON.parse(e('JSON.stringify(windRechargeSummary({history:[{t:0,segment:1,maximum:100,recharge_per_second:.1},{t:4,segment:1,maximum:100,recharge_per_second:.3},{t:12,segment:1,maximum:100,recharge_per_second:.2}]}))'));
+assert.equal(rates.highest,.3);assert.equal(rates.lowest,.1);assert.ok(Math.abs(rates.average-2.8/12)<1e-10);
+assert.doesNotMatch(e('windsRechargeText({recharge_stats:{highest:.3,lowest:.1,average:.2}})'),/seconds|s\/point|Last recharge/);
+assert.match(e('windsRechargeText({recharge_stats:{highest:.3,lowest:.1,average:.2}})'),/Highest recharge: 0.3 Winds\/s[^]*Lowest recharge: 0.1 Winds\/s[^]*Average recharge: 0.2 Winds\/s/);
+console.log('Report checks pass: full/simplified effect tooltips, activity labels, fixed baseline bars, rounded effects/Winds modifiers, and previous graph/map/popout interactions.');
