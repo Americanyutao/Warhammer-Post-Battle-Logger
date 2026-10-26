@@ -10,6 +10,37 @@ function run(block=false){const nodes={},ids=new Set(['data',...[...markup.match
  const fakeWindow={devicePixelRatio:1,addEventListener(){},open:makeWindow};
  const c=vm.createContext({document:{getElementById:node,querySelector:s=>s==='.report-heading'?{getBoundingClientRect:()=>({height:100})}:s==='style'?{textContent:html.match(/<style>([\s\S]*?)<\/style>/)[1]}:nodes.heading??={},createElement:()=>({}),documentElement:{style:{setProperty:(k,v)=>styles.set(k,v)}}},localStorage:{getItem:k=>{if(block)throw Error();return storage.get(k)||null},setItem:(k,v)=>{if(block)throw Error();storage.set(k,v)}},window:fakeWindow,console});vm.runInContext(script,c);return{node,windows,e:s=>vm.runInContext(s,c)}}
 const r=run(),n=r.node,e=r.e;
+
+// Main table percentages floor to integers; unit-detail formatting retains precision.
+assert.equal(e('cellText({last:{hp_cached:999,hp_max_cached:1000}},"hp_cached")'),'(99%) 999/1,000');
+assert.equal(e('hpText({last:{hp_cached:999,hp_max_cached:1000}})'),'(99.9%) 999/1,000');
+assert.equal(e('cellText({last:{damage:1000,damage_by_source:{ability:{enemy:129}}}},"source:ability")'),'(12%) 129');
+assert.equal(e('cellText({damage_taken_estimate:1999,damage_taken_calculation:{baseline:{maximum_hp:1000}},last:{}},"damage_taken")'),'(199%) 1,999');
+assert.equal(e('cellText({id:"floor-test",last:{gold_damage:999,unit_gold_value:1000}},"trade")'),'99%');
+assert.equal(e('cellText({last:{}},"hp_cached")'),'(—%) —/—');
+assert.equal(e('CATEGORIES.simple.columns.filter(c=>c[1]==="hp_cached").length'),1);
+assert.equal(e('CATEGORIES.simple.columns.filter(c=>c[1]==="models").length'),1);
+assert.equal(e('CATEGORIES.simple.columns.some(c=>c[1]==="hp_and_models")'),false);
+// Releasing on the original row after a hold or selection must not open Unit view.
+const rowTarget={closest:()=>({dataset:{id:e('scopedUnits()[0].id')}})};
+function rowGesture(duration,{drag=false,selected=false,cancel=false}={}){
+ e('showView("main")');
+ e('window.getSelection=()=>({isCollapsed:'+!selected+'})');
+ n('rows').onpointerdown({target:rowTarget,button:0,timeStamp:100,clientX:10,clientY:10});
+ if(drag){n('rows').onpointermove({clientX:40,clientY:10});n('rows').onpointermove({clientX:10,clientY:10})}
+ if(cancel)n('rows').onpointercancel();
+ n('rows').onclick({target:rowTarget,detail:1,timeStamp:100+duration});
+ return e('view');
+}
+assert.equal(rowGesture(80),'unit');
+assert.equal(rowGesture(700),'main');
+assert.equal(rowGesture(80,{drag:true}),'main');
+assert.equal(rowGesture(80,{selected:true}),'main');
+assert.equal(rowGesture(80,{cancel:true}),'main');
+e('window.getSelection=()=>({isCollapsed:true})');
+n('rows').onclick({target:rowTarget,detail:0});assert.equal(e('view'),'unit');
+e('showView("main")');
+
 assert.ok(!markup.includes('id="cards"'));for(const label of ['Collection quality & performance','Unmeasured fields & interpretation','Game icon sources'])assert.ok(!markup.includes(label));assert.ok(!n('subtitle').textContent.includes('PDT'));
 assert.equal(e('battleOverviewTitle("/reports/fun%20battle.html")'),'Battle overview: fun battle');
 assert.equal(e('battleOverviewTitle("/reports/fun.battle.HTML")'),'Battle overview: fun.battle');
@@ -56,7 +87,7 @@ assert.equal(e('tradePercent({id:"test",name:"test",last:{gold_damage:3000,unit_
 assert.equal(e('cellText({id:"test",name:"test",last:{gold_damage:3000,unit_gold_value:1000}},"trade")'),'300%');assert.equal(e('tradePercent({id:"test",name:"test",last:{gold_damage:3000,unit_gold_value:0}})'),null);
 e('selectUnit(scopedUnits()[0].id,true)');assert.equal(e('view'),'unit');assert.equal(n('unit-title').textContent,e('unitName(scopedUnits()[0])'));assert.equal(styles.get('--report-header-height'),'100px');
 n('unit-value').value='1000';n('unit-value').onchange();assert.equal(e('unitWorth(scopedUnits()[0]).value'),1000);
-assert.equal(e('cellText({ammo:{primary:{initial:1080,expended:390}}},"primary_ammo_expended")'),'(36.1%) 390');
+assert.equal(e('cellText({ammo:{primary:{initial:1080,expended:390}}},"primary_ammo_expended")'),'(36%) 390');
 assert.equal(e('ammoPercent({ammo:{primary:{initial:0,expended:0}}},"primary_ammo_expended")'),null);
 e('globalThis.savedUnits=D.units;D.units=[{id:"sort-A",name:"A",side:"Allied",last:{},ammo:{primary:{initial:20,expended:10}}},{id:"sort-B",name:"B",side:"Allied",last:{},ammo:{primary:{initial:1000,expended:100}}},{id:"sort-C",name:"C",side:"Allied",last:{},ammo:{primary:{initial:50,expended:40}}}];selectCategory("ranged")');
 for(const order of ['C,A,B','B,A,C','C,A,B']){
