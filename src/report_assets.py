@@ -5,7 +5,13 @@ from functools import lru_cache
 import json
 from pathlib import Path
 import re
+from urllib.parse import quote
 from paths import resource_path
+
+CARD_FOLDERS=('ui/portraits/units/','ui/units/icons/')
+
+def required_images(index):
+    return set(index['stats'].values())|{p for key in ('units','units_by_key') for p in index.get(key,{}).values() if p.startswith(CARD_FOLDERS)}|{p for p in index['provenance'] if p.startswith(CARD_FOLDERS)}
 
 
 def name_key(text):
@@ -61,7 +67,7 @@ def effect_texts_for(units,root):
     return result
 
 
-def assets_for(units,icons=True):
+def assets_for(units,icons=True,*,embed_images=True,image_prefix='assets/game/'):
     root=resource_path('assets')
     index=index_at(root/'game-assets.json')
     prices=index_at(root/'unit-values.json')
@@ -88,8 +94,11 @@ def assets_for(units,icons=True):
         portrait=captured(u,'portrait_path')
         if portrait:
             path=portrait.replace('\\','/').lower().replace('/portholes/','/units/')
-            image=paths.get(path)
-        if not image and key:image=index.get('units_by_key',{}).get(key)
+            image=paths.get(path) if path.startswith(CARD_FOLDERS) else None
+            if image:note=''
+        if not image and key:
+            image=index.get('units_by_key',{}).get(key)
+            note=index.get('unit_key_notes',{}).get(key,note)
         if key:keys=[key]
         if not image:
             image=index['units'].get(name) or index['units'].get(labels.get(name,''))
@@ -104,6 +113,7 @@ def assets_for(units,icons=True):
                         if len(images)==1:
                             image=images.pop();keys=subset
                             note='Provisional card selected from matching unit names and army roster.'
+        if image and not image.startswith(CARD_FOLDERS):image=None
         if image:
             by_id[uid]=image;cards.setdefault(name,image)
         else:
@@ -129,5 +139,5 @@ def assets_for(units,icons=True):
     return dict(stats=stats,icons_enabled=bool(icons),units=cards,unit_cards=by_id,labels=labels,unit_notes=notes,unit_info=info,
         race_names=index_at(root/'race-names.json'),effect_texts=effect_texts_for(units,root),statline=index_at(root/'statline.json'),
         unit_values=unit_values,unit_values_by_id=values_by_id,value_source=prices['source'],value_source_sha256=prices['sha256'],
-        images={n:'data:image/png;base64,'+base64.b64encode((root/'game'/n).read_bytes()).decode('ascii') for n in names},
+        images={n:('data:image/png;base64,'+base64.b64encode((root/'game'/n).read_bytes()).decode('ascii') if embed_images else image_prefix+quote(n,safe='/')) for n in names},
         provenance={n:library[n] for n in names})

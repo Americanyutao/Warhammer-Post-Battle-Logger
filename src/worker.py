@@ -5,7 +5,9 @@ import queue
 import threading
 import time
 import uuid
+from battle_names import unique_capture_path
 from aggregate import Battle
+from aggregate import number
 from combat_window import CombatWindow
 from logfile import load_key
 from memory import WindowsAPI, ProcessMemory, ReadError, UnsupportedBuild, select_profile, load_profiles
@@ -35,10 +37,53 @@ class Worker(threading.Thread):
         self.memory = self.reader = self.token = self.battle = self.recorder = None
         self.suppressed = None
         self.recorders = []
-        self.monitor, self.stats = ResourceMonitor(), {}
+        self.recorders_lock = threading.Lock()
+        self.monitor, self.stats = ResourceMonitor() if preview else None, {}
         self.last_frame_t = None
         self.combat_window, self.window_identity = CombatWindow(), None
         self.status = 'Waiting for WARHAMMER III'
+        self.late_start_request = None
+        self.late_start_answers = queue.Queue()
+        self.late_start_allowed = None
+        self.last_unit_data = None
+        self.data_timeout = 30.
+
+    def answer_late_start(self, request, accepted):
+        self.late_start_answers.put((request, bool(accepted)))
+
+    def allow_start(self, identity, frame):
+        """Keep reading while the UI asks; create no capture before consent."""
+        if identity == self.suppressed: return False
+        if self.combat_window.started or self.combat_window.baseline is not None:
+            self.late_start_request = None
+            if frame.get('battle_phase') in (0,4):self.late_start_allowed=None
+            return True
+        if frame.get('battle_phase') not in (5,6,7) or not number(frame.get('sim_s')):
+            self.late_start_request = None
+            return True
+        if self.late_start_allowed == identity: return True
+        if self.late_start_request != identity: self.late_start_request = identity
+        while True:
+            try: request, accepted = self.late_start_answers.get_nowait()
+            except queue.Empty: break
+            if request != identity: continue
+            self.late_start_request = None
+            if accepted:
+                self.late_start_allowed = identity
+                return True
+            self.suppressed = identity
+            return False
+        return False
+
+    def unit_data_missing(self, now, detail):
+        if not self.recorder: return
+        self.battle.break_continuity()
+        self.recorder.submit(dict(kind='gap', detail=detail))
+        if self.last_unit_data is not None and now-self.last_unit_data >= self.data_timeout:
+            identity=self.window_identity
+            self.finish('unit_data_timeout')
+            self.suppressed=identity
+            self.status='Unit data stopped · saving recording; waiting for next battle'
 
     def set_rate(self, rate):
         if rate not in RATES: raise ValueError('Refresh rate must be 1, 0.5 or 0.2 samples per second.')
@@ -49,16 +94,20 @@ class Worker(threading.Thread):
         reports = [dict(path=str(r.path), report=str(r.report_path) if r.report_path else None,
             done=r.done.is_set(), error=r.error, dropped=r.dropped) for r in self.recorders[-10:]]
         latest_put(self.channel, dict(status=self.status, summary=summary, stats=dict(self.stats),
-                                      reports=reports, recording=self.recorder is not None))
+                                      reports=reports, recording=self.recorder is not None,
+                                      late_start_request=self.late_start_request))
 
     def finish(self, reason):
         if self.recorder:
-            self.recorder.finish(dict(reason=reason, first_s=self.battle.start_t, last_s=self.battle.end_t,
-                wall_seconds=time.monotonic()-self.wall_start, process_cpu_seconds=time.process_time()-self.cpu_start,
-                rate_at_end=self.rate, cached_fields_live_validated=False))
+            footer=dict(reason=reason, first_s=self.battle.start_t, last_s=self.battle.end_t,
+                rate_at_end=self.rate, cached_fields_live_validated=False)
+            if self.preview:footer.update(wall_seconds=time.monotonic()-self.wall_start,process_cpu_seconds=time.process_time()-self.cpu_start)
+            self.recorder.finish(footer)
             self.recorder = None
         self.token = None
         self.last_frame_t = None
+        self.last_unit_data = None
+        self.late_start_request = None
 
     def detach(self):
         if self.memory: self.memory.close()
@@ -88,17 +137,18 @@ class Worker(threading.Thread):
                         profile = select_profile(self.memory, module, profiles)
                         self.profile = profile
                         self.reader = LoggerReader(self.memory, module, profile)
-                    calls, size = self.memory.calls, self.memory.bytes_read
-                    before = time.perf_counter()
+                    if self.preview:calls, size = self.memory.calls, self.memory.bytes_read
+                    before = time.perf_counter() if self.preview else None
                     sample = self.reader.sample()
                     frame = self.reader.normalized(sample)
-                    self.stats = dict(self.monitor.sample(), read_ms=(time.perf_counter()-before)*1000,
+                    if self.preview:self.stats = dict(self.monitor.sample(), read_ms=(time.perf_counter()-before)*1000,
                         read_calls=self.memory.calls-calls, bytes_read=self.memory.bytes_read-size, rate=self.rate)
                     if frame is None:
                         self.finish_event.clear()
                         self.finish('battle_roster_unavailable')
                         self.suppressed = None
                         self.combat_window, self.window_identity = CombatWindow(), None
+                        self.late_start_request = self.late_start_allowed = None
                         self.status = 'Post-battle' if self.battle else 'Waiting for battle'
                     else:
                         t = frame['sim_s']
@@ -106,6 +156,7 @@ class Worker(threading.Thread):
                         if identity != self.window_identity:
                             self.finish('battle_identity_changed')
                             self.combat_window, self.window_identity = CombatWindow(), identity
+                            self.late_start_request = self.late_start_allowed = None
                         if self.finish_event.is_set():
                             self.finish_event.clear()
                             self.finish('user_finished_capture')
@@ -116,6 +167,19 @@ class Worker(threading.Thread):
                         if rollback:
                             self.finish('battle_clock_changed')
                             self.combat_window = CombatWindow()
+                            self.late_start_request = self.late_start_allowed = None
+                        if not frame.get('units') or not number(t):
+                            self.status='Waiting for readable unit data'
+                            self.unit_data_missing(time.monotonic(),'No readable units or battle clock')
+                            self.publish()
+                            self.stop_event.wait(max(.01,self.interval-(time.monotonic()-started)))
+                            continue
+                        if not self.allow_start(identity,frame):
+                            self.status=('Battle discarded · waiting for next battle' if identity == self.suppressed else
+                                'Battle already in progress · waiting for your choice')
+                            self.publish()
+                            self.stop_event.wait(max(.01,self.interval-(time.monotonic()-started)))
+                            continue
                         frame = self.combat_window.accept(frame)
                         if frame is None:
                             if self.combat_window.baseline and identity != self.suppressed: self.battle = None
@@ -129,23 +193,27 @@ class Worker(threading.Thread):
                             if self.recorder: self.finish('battle_identity_or_clock_changed')
                             if identity != self.suppressed or rollback:
                                 now = pacific(dt.datetime.now(dt.timezone.utc))
-                                path = self.root / 'captures' / ('battle-'+now.strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:8]+'.wh3log')
+                                path = unique_capture_path(self.root,'battle-'+now.strftime('%Y%m%d-%H%M%S'))
                                 metadata = dict(started_pacific=now.strftime('%Y-%m-%d %H:%M:%S %Z'),
                                     build=self.profile['name'], source='external-native', refresh_hz=self.rate,
                                     maximum_interval_s=80, debug_visibility='full_enemy_collection', schema=1)
+                                metadata['started_mid_battle'] = self.late_start_allowed == identity
                                 metadata.update(collector_revision=17,capabilities=['coalesced_paused_samples','sampled_unit_statline','effect_instances_and_intensity','configured_effect_damage_scale','native_battle_ui_clock','sampled_active_effects','battle_time_effect_ticks','native_result_type','native_combat_boundary','deployment_initial_values','native_fatigue_pair','native_starting_ammo','ammo_net_expended','retreat_state_union','native_result_health_and_exit','native_damage_by_source','friendly_self_hp_damage','explicit_winds_rate_units','native_healing_budget','flat_ammo','signed_leadership','unit_type_key','unit_portrait_path','fatigue_points_and_rules','character_level','native_results_phase','left_battlefield','rally_wait_raw'])
                                 self.battle = Battle(metadata, keep_history=False, max_gap=80)
-                                self.wall_start, self.cpu_start = time.monotonic(), time.process_time()
-                                self.recorder = Recorder(path, key, metadata)
-                                running = [r for r in self.recorders if not r.done.is_set()]
-                                finished = [r for r in self.recorders if r.done.is_set()][-9:]
-                                self.recorders = finished + running
-                                self.recorders.append(self.recorder)
+                                if self.preview:self.wall_start, self.cpu_start = time.monotonic(), time.process_time()
+                                with self.recorders_lock:
+                                    self.recorder = Recorder(path, key, metadata,diagnostics=self.preview)
+                                    running = [r for r in self.recorders if not r.done.is_set()]
+                                    finished = [r for r in self.recorders if r.done.is_set()][-9:]
+                                    self.recorders = finished + running
+                                    self.recorders.append(self.recorder)
                                 self.token, self.suppressed = identity, None
                                 self.last_frame_t = None
                         self.last_frame_t = t
-                        frame['performance'] = self.stats
+                        if self.preview:frame['performance'] = self.stats
                         if self.recorder:
+                            # A paused but readable frame is still a healthy stream.
+                            self.last_unit_data = time.monotonic()
                             self.battle.observe(frame)
                             # The recorder coalesces equal timestamps to their latest state.
                             self.recorder.submit(frame)
@@ -160,9 +228,8 @@ class Worker(threading.Thread):
                     self.publish()
                     self.stop_event.wait(5)
                 except (ReadError, OSError, ValueError) as error:
-                    if self.battle: self.battle.break_continuity()
-                    if self.recorder: self.recorder.submit(dict(kind='gap', detail=str(error)))
                     self.status = 'Unavailable · '+str(error)
+                    self.unit_data_missing(time.monotonic(),str(error))
                     if self.reader is None: self.detach()
                     self.publish()
                 # Polling cadence is wall time; all durations use the game clock.

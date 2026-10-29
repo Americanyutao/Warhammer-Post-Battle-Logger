@@ -4,14 +4,14 @@ import queue
 import threading
 import time
 from logfile import LogWriter
-from report import convert
-from settings import load_report_options
+from capture_precision import release_record
 
 
 class Recorder(threading.Thread):
-    def __init__(self, path, key, metadata, max_bytes=512*1024*1024):
+    def __init__(self, path, key, metadata, max_bytes=512*1024*1024,*,diagnostics=False):
         super().__init__(name='logger-disk', daemon=False)
         self.path, self.key, self.metadata, self.max_bytes = path, key, metadata, max_bytes
+        self.diagnostics=diagnostics
         self.queue = queue.Queue(maxsize=32)
         self.done = threading.Event()
         self.finish_requested = threading.Event()
@@ -44,24 +44,30 @@ class Recorder(threading.Thread):
     def run(self):
         writer = None
         try:
-            writer = LogWriter(self.path, self.key, self.metadata)
+            metadata=dict(self.metadata,diagnostics=True) if self.diagnostics else release_record(dict(kind='header',metadata=self.metadata))['metadata']
+            writer = LogWriter(self.path, self.key, metadata)
+            writer.flush(durable=True)
             flushed = time.monotonic()
             pending = None
             def write(record):
                 nonlocal flushed
-                started=time.perf_counter()
+                started=time.perf_counter() if self.diagnostics else None
                 if not self.limit_reached:
-                    writer.write(record)
+                    writer.write(record if self.diagnostics else release_record(record))
                     self.written+=1
                     self.limit_reached=writer.stream.tell()>=self.max_bytes
                 else:self.dropped+=1
                 if time.monotonic()-flushed>=2:
-                    writer.flush();flushed=time.monotonic()
-                self.io_seconds+=time.perf_counter()-started
+                    writer.flush(durable=True);flushed=time.monotonic()
+                if self.diagnostics:self.io_seconds+=time.perf_counter()-started
             def sample(record):
                 t=record.get('sim_s')
                 return record.get('kind')=='sample' and isinstance(t,(int,float)) and not isinstance(t,bool) and math.isfinite(t)
             while not self.finish_requested.is_set() or not self.queue.empty():
+                # Checkpoint even a long paused first sample for crash recovery.
+                if time.monotonic()-flushed>=2:
+                    if pending is not None:write(pending);pending=None
+                    writer.flush(durable=True);flushed=time.monotonic()
                 try:record=self.queue.get(timeout=.1)
                 except queue.Empty:continue
                 if pending is not None:
@@ -79,10 +85,13 @@ class Recorder(threading.Thread):
                 else:write(record)
             if pending is not None:write(pending)
             writer.flush()
-            writer.close(dict(self.footer or {}, dropped_records=self.dropped, written_records=self.written,
-                bytes_before_footer=self.path.stat().st_size, io_seconds=self.io_seconds,
-                size_limit_reached=self.limit_reached,paused_samples_coalesced=self.paused_samples_coalesced))
-            self.report_path = convert(self.path, self.key,report_options=load_report_options(self.path.parent.parent))
+            footer=dict(self.footer or {}, dropped_records=self.dropped, written_records=self.written,
+                bytes_before_footer=self.path.stat().st_size,
+                size_limit_reached=self.limit_reached,paused_samples_coalesced=self.paused_samples_coalesced)
+            if self.diagnostics:footer['io_seconds']=self.io_seconds
+            else:footer=release_record(dict(kind='footer',summary=footer))['summary']
+            writer.close(footer)
+            # Reports are decoded on demand by the app viewer. HTML export is separate.
         except Exception as error:
             self.error = str(error)
         finally:

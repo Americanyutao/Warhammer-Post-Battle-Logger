@@ -5,7 +5,7 @@ import os
 import threading
 from paths import DATA_ROOT
 
-ICONS_TIP='Icons increase the size of the report significantly. Turn off for easier sharing.'
+ICONS_TIP='Show bundled icons in the app viewer. Icons also increase HTML export sizes significantly. Turn off for easier sharing of HTML exports.'
 
 
 def load_report_options(root=DATA_ROOT):

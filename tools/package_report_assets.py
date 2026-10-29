@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import shutil
 import re
+from unit_card_sources import character_cards
 from collections import defaultdict
 P=Path(__file__).resolve().parents[1]
 ROOT=P.parent/'Local-files'
@@ -89,20 +90,21 @@ def main():
         if '_mask' not in source.stem:portraits[normalized_key(source.stem)].append(asset)
     for key,file in STATS.items():copy(ROOT/'ui/skins/default'/file,file);manifest['stats'][key]=file
     def rank(asset):
-        groups=('/units/icons/','/portraits/units/','/units/infopics/',
-                '/units/minspec_portholes/','/portraits/portholes/','/portraits/faction_leaders/')
+        groups=('/units/icons/','/portraits/units/')
         return (next((i for i,group in enumerate(groups) if group in asset),len(groups)),
                 '/no_culture/' not in asset,'_mask' in asset,asset)
-    def card(*keys):
-        for key in keys:
-            if not key or key in ['placeholder','a_character_placeholder']:continue
-            if stems.get(key):return min(stems[key],key=rank)
-            if portraits.get(normalized_key(key)):return min(portraits[normalized_key(key)],key=rank)
+    def card(*keys,exact=False):
+        for lookup in ([stems] if exact else [stems,portraits]):
+            for key in keys:
+                if not key or key in ['placeholder','a_character_placeholder']:continue
+                candidates=[p for p in lookup.get(key if lookup is stems else normalized_key(key),[]) if any(g in p for g in ('/units/icons/','/portraits/units/'))]
+                if candidates:return min(candidates,key=rank)
         return None
     mains=table('db/main_units_tables/data__.tsv');lands={r['key']:r for r in table('db/land_units_tables/data__.tsv')}
     variants=defaultdict(list)
     for r in table('db/unit_variants_tables/data__.tsv'):variants[r['unit']].append(r)
     aliases=defaultdict(set);prices={};price_keys={};missing=[]
+    character_sources=character_cards(ROOT,table,manifest['provenance'])
     special={'wh3_dlc29_chs_cha_glottkin':'ui/portraits/units/no_culture/chs_otto_0.png'}
     for r in mains:
         key=r['unit'];land=r.get('land_unit','')
@@ -110,7 +112,13 @@ def main():
         # Retain main-key variants too for records where both keys are identical.
         v=sorted(variants[key]+(variants[land] if land!=key else []),key=lambda x:(bool(x['faction']),x['faction']))
         candidates=[x['unit_card'] for x in v]+[key,land]+[x['variant'] for x in v]
-        image=special.get(key) or card(*candidates)
+        image=special.get(key) or card(*candidates,exact=True)
+        if not image and key in character_sources:
+            alternatives=list(dict.fromkeys(row['image'] for row in character_sources[key]))
+            image=alternatives[0]
+            manifest.setdefault('card_candidates_by_key',{})[key]=alternatives
+            if len(alternatives)>1:manifest.setdefault('unit_key_notes',{})[key]='Default appearance variant; a recorded portrait selects the exact unit card.'
+        image=image or card(*candidates)
         loc_keys=['land_units_onscreen_name_'+x for x in [land,key,*[x['name'] for x in v]] if x]
         names={resolve(localization.get(k,'')) for k in loc_keys}-{''}
         culture=normalized_key(key).split('_')[0]

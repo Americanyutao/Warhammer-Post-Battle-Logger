@@ -15,6 +15,7 @@ from aggregate import Battle, STATES
 from logfile import load_key
 from report import convert
 from worker import Worker, RATES
+from viewer_manager import ViewerManager
 from icons import set_app_identity, set_window_icon
 from widgets import RankedTable, BG, TEXT, MUTED, GOLD
 
@@ -24,8 +25,10 @@ class App:
         self.root, self.demo = root, demo
         self.channel = queue.Queue(maxsize=1)
         self.worker = None if demo else Worker(PROJECT, self.channel, rate, pid)
+        self.viewers=ViewerManager(PROJECT)
         self.summary, self.message, self.last_report = None, {}, None
         self.sort_by, self.side, self.closing = 'damage', 'Mine', False
+        self.prompted_late_start = None
         root.title('Warhammer III Battle Logger')
         set_window_icon(root)
         root.geometry('1180x760')
@@ -207,7 +210,7 @@ class App:
                 self.summary = self.message['summary']
                 self.status.configure(text=self.message['status'])
                 for report in self.message['reports']:
-                    if report['report']: self.last_report = report['report']
+                    if report['done']: self.last_report = report['path']
                 errors = [r['error'] for r in self.message['reports'] if r['error']]
                 stats = self.message['stats']
                 if errors: self.status.configure(text='Saving error: '+errors[-1])
@@ -217,6 +220,12 @@ class App:
                     f"dropped records {sum(r['dropped'] for r in self.message['reports'])}")
                 self.finish_button.configure(state='normal' if self.message['recording'] else 'disabled')
                 self.refresh()
+                request=self.message.get('late_start_request')
+                if request and request!=self.prompted_late_start:
+                    self.prompted_late_start=request
+                    accepted=messagebox.askyesno('Battle already in progress',
+                        'The logger started after deployment. Values may be incorrect or incomplete.\n\nContinue logging this battle? Choose No to discard it.',parent=self.root)
+                    self.worker.answer_late_start(request,accepted)
         except queue.Empty:
             pass
         if self.closing and (not self.worker or not self.worker.is_alive()): self.root.destroy(); return
@@ -227,20 +236,18 @@ class App:
 
     def open_report(self):
         if self.last_report:
-            os.startfile(self.last_report)
+            self.viewers.open(self.last_report)
             return
-        path = filedialog.askopenfilename(initialdir=PROJECT/'captures', filetypes=[('Battle log','*.wh3log'), ('Report','*.html')])
+        path = filedialog.askopenfilename(initialdir=PROJECT/'captures', filetypes=[('Battle log','*.wh3log')])
         if not path: return
-        if Path(path).suffix == '.html': os.startfile(path); return
         try:
             keypath = PROJECT/'captures/logger.key'
             if not keypath.exists():
                 selected = filedialog.askopenfilename(title='Select the logger key', filetypes=[('Logger key','*.key')])
                 if not selected: return
                 keypath = Path(selected)
-            output = convert(path, load_key(keypath))
-            self.last_report = str(output)
-            os.startfile(str(output))
+            self.viewers.open(path,keypath)
+            self.last_report=str(path)
         except Exception as error:
             messagebox.showerror('Cannot open report', str(error))
 
@@ -248,6 +255,7 @@ class App:
         self.closing = True
         self.status.configure(text='Saving capture and report…')
         if self.worker: self.worker.stop_event.set()
+        self.viewers.close()
 
 
 def main():

@@ -1,5 +1,6 @@
 'use strict';
 const D=JSON.parse(document.getElementById('data').textContent),$=id=>document.getElementById(id);
+if($('recording-warning')&&D.recording_warnings?.length){$('recording-warning').hidden=false;$('recording-warning').textContent=D.recording_warnings.join(' ')}
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=(v,d=0)=>v==null?'—':Number(v).toLocaleString(undefined,{maximumFractionDigits:d});
 const seconds=v=>fmt(v,0);
@@ -54,6 +55,7 @@ function publishTime(time,source=null){
  sharedTime=Math.max(start,Math.min(end,time));
  for(let [canvas,graph] of synchronizedGraphs){
   if(graph.doc.defaultView?.closed||graph.doc.getElementById(graph.id)!==canvas){synchronizedGraphs.delete(canvas);continue}
+  if((graph.id==='movement'||graph.id==='movement-time')&&view==='unit'&&movementState(D.units.find(u=>u.id===selected)||{}).locked)continue;
   canvas._sharedTime=sharedTime;graph.render(sharedTime,source);
  }
 }
@@ -100,7 +102,7 @@ const CATEGORIES={
  barrier:{name:'Barrier',icon:'barrier',sort:'name',columns:[],workInProgress:true,note:''},
  remaining:{name:'HP & models',icon:'hp',sort:'hp_cached',columns:[['HP remaining','hp_cached','hp'],['Models remaining','models','models'],['Initial models / max models','models_initial','models'],['Last observed status','status','status']],note:''}
 };
-let category='simple',side='Allied',sort='damage',ascending=false,selected=null,view='main';
+let category='simple',side='Allied',sort='damage',ascending=false,selected=null,view='main',unitHeaderMinimized=false;
 const percentText=(v,whole=false)=>fmt(whole?Math.floor(v):v,whole?0:1);
 const percentDamage=(v,total,whole=false)=>v==null?'—':'('+(total>0?percentText(v/total*100,whole):total===0&&v===0?'0':'—')+'%) '+fmt(v);
 const hpText=(u,whole=false)=>{let hp=known(u,'hp_cached'),max=known(u,'hp_max_cached');return '('+(hp!=null&&max>0?percentText(hp/max*100,whole):'—')+'%) '+fmt(hp)+'/'+fmt(max)};
@@ -189,7 +191,7 @@ function syncExplanationVisibility(){
  $('hide-graph-explanations').checked=hideGraphExplanations;
  const u=D.units.find(u=>u.id===selected);
  for(let i=0;i<4;i++){let heading=$('graph-heading-'+i);if(heading)heading.title=hideGraphExplanations?'':metricNote(graphMetrics[i],u);let note=$('graph-note-'+i);if(note){note.textContent=metricNote(graphMetrics[i],u);note.hidden=hideGraphExplanations}}
- for(let [id,tip] of [['movement-heading','Paths use earlier-to-later colors. Brighter cells show larger sampled values. Occupancy uses the preceding position; counter gains use the position where first recorded. Missing intervals and resets are excluded.'],['winds-heading','Gold: usable Winds. Blue: reserves. Recharge transfers reserves into usable Winds.'],['activity-heading','Bars join consecutive active samples at recorded battle times. Unknown readings and recording gaps break the bars.'],['effects-heading','Statline shows the nearest recorded unit-card snapshot. Move across the timeline or use the time controls. Effect bars join consecutive detections at recorded battle times, assuming the effect continued between them. Missing or unreadable ticks and recording gaps break the bar. Hover a name or bar for listed effects and configured healing/damage rates at the recorded intensity. Internal effects hidden by the game may not appear.']]){let heading=$(id);if(heading)heading.title=hideGraphExplanations?'':tip}
+ for(let [id,tip] of [['movement-heading','All units with recorded positions are shown. Brighter white cells combine both sides. Unit dots are green for allies and red for enemies. Hover the time strip to choose a sample; click to lock or unlock this map only. Hover dots for unit names. Missing intervals and counter resets are excluded.'],['winds-heading','Gold: usable Winds. Blue: reserves. Recharge transfers reserves into usable Winds.'],['activity-heading','Bars join consecutive active samples at recorded battle times. Unknown readings and recording gaps break the bars.'],['effects-heading','Statline shows the nearest recorded unit-card snapshot. Move across the timeline or use the time controls. Effect bars join consecutive detections at recorded battle times, assuming the effect continued between them. Missing or unreadable ticks and recording gaps break the bar. Hover a name or bar for listed effects and configured healing/damage rates at the recorded intensity. Internal effects hidden by the game may not appear.']]){let heading=$(id);if(heading)heading.title=hideGraphExplanations?'':tip}
  for(let mini of minis)if(!mini.win.closed){let node=mini.win.document.getElementById('mini-metric');if(node)node.title=hideGraphExplanations?'':metricNote(mini.metric,D.units.find(u=>u.id===mini.unitId));let note=mini.win.document.getElementById('mini-note');if(note){note.textContent=metricNote(mini.metric,D.units.find(u=>u.id===mini.unitId));note.hidden=hideGraphExplanations}}
 }
 function setExplanationsHidden(hidden){hideGraphExplanations=!!hidden;try{localStorage.setItem(EXPLANATIONS_STORAGE,String(hideGraphExplanations))}catch(_){}syncExplanationVisibility()}
@@ -218,9 +220,17 @@ $('rows').onpointermove=e=>{if(rowPress&&Math.hypot(e.clientX-rowPress.x,e.clien
 $('rows').onpointercancel=()=>{rowPress=null};
 $('rows').onclick=e=>{let row=e.target.closest('tr[data-id]'),press=rowPress;rowPress=null;if(!row||window.getSelection?.()?.isCollapsed===false)return;if(e.detail!==0&&(!press||press.id!==row.dataset.id||press.dragged||e.timeStamp-press.start>=400))return;selectUnit(row.dataset.id,true)};
 $('side').onchange=()=>{side=$('side').value;renderTable();renderUnitPicker();if(!scopedUnits().some(u=>u.id===selected))selectUnit(scopedUnits()[0]?.id)};
-function showView(next){view=next;$('main-view').hidden=next!=='main';$('unit-view').hidden=next!=='unit';$('unit-header').hidden=next!=='unit';$('main-tab').setAttribute('aria-pressed',String(next==='main'));$('unit-tab').setAttribute('aria-pressed',String(next==='unit'));document.querySelector('h1').textContent=next==='main'?battleOverviewTitle():'Unit workspace';renderPanels();refreshMinis()}
+function showView(next){view=next;$('main-view').hidden=next!=='main';$('unit-view').hidden=next!=='unit';syncUnitHeader();$('main-tab').setAttribute('aria-pressed',String(next==='main'));$('unit-tab').setAttribute('aria-pressed',String(next==='unit'));document.querySelector('h1').textContent=next==='main'?battleOverviewTitle():'Unit workspace';renderPanels();refreshMinis()}
+function syncUnitHeader(){
+ if($('report-header'))$('report-header').hidden=view==='unit'&&unitHeaderMinimized;
+ $('unit-header').hidden=view!=='unit'||unitHeaderMinimized;
+ if($('unit-header-restore'))$('unit-header-restore').hidden=view!=='unit'||!unitHeaderMinimized;
+}
+function minimizeUnitHeader(minimized){unitHeaderMinimized=minimized;syncUnitHeader();syncHeader();$(minimized?'unit-header-restore':'unit-header-minimize')?.focus?.()}
+if($('unit-header-minimize'))$('unit-header-minimize').onclick=()=>minimizeUnitHeader(true);
+if($('unit-header-restore'))$('unit-header-restore').onclick=()=>minimizeUnitHeader(false);
 $('main-tab').onclick=()=>showView('main');$('unit-tab').onclick=()=>showView('unit');
-function renderUnitPicker(){$('unit-select').innerHTML=scopedUnits().map(u=>'<option value="'+esc(u.id)+'">'+esc(unitName(u))+'</option>').join('');$('unit-select').value=selected||''}
+function renderUnitPicker(){if($('unit-picker-label'))$('unit-picker-label').textContent='Choose unit from '+({All:'all',Allied:'ally',Enemy:'enemy'}[side]||'all');$('unit-select').innerHTML=scopedUnits().map(u=>'<option value="'+esc(u.id)+'">'+esc(unitName(u))+'</option>').join('');$('unit-select').value=selected||''}
 $('unit-select').onchange=()=>selectUnit($('unit-select').value);
 function metricCard(label,v,key){let tip=key==='healing'?HEALING_CAP_TIP:cellTip(({gold:'gold_damage',hp:'hp_cached'})[key]||key);return '<div class="card"><span class="card-label" title="'+esc(tip)+'">'+icon(key)+esc(label)+'</span><b>'+esc(v)+'</b></div>'}
 function selectUnit(id,open=false){selected=id;const u=D.units.find(u=>u.id===selected);renderUnitPicker();if(!u){$('unit-title').textContent='No units in this view';$('unit-portrait').innerHTML='';$('unit-summary').innerHTML='';$('detail').innerHTML='';$('unit-panels').innerHTML='';$('unit-side').textContent='';$('unit-status').textContent='';if(open)showView('unit');return}
@@ -521,26 +531,47 @@ function battleMovementBounds(){
  b=null;for(let u of D.units)for(let p of u.history||[]){if(p.xyz?.length!==3||!p.xyz.every(Number.isFinite))continue;let[x,,z]=p.xyz;if(!b)b={xmin:x,xmax:x,zmin:z,zmax:z};else{b.xmin=Math.min(b.xmin,x);b.xmax=Math.max(b.xmax,x);b.zmin=Math.min(b.zmin,z);b.zmax=Math.max(b.zmax,z)}}return b;
 }
 const MOVEMENT_BOUNDS=battleMovementBounds();
-const MOVEMENT_MEASURES=[['occupancy','Occupancy',null,'seconds'],['damage','Damage','damage','HP'],['gold_damage','Gold damage dealt','gold_damage','gold'],['kills','Kills','kills','kills'],['damage_taken_estimate','Damage taken','damage_taken_estimate','HP'],['healing_received_estimate','Healing received','healing_received_estimate','HP']];
+const MOVEMENT_MEASURES=[['occupancy','Occupancy',null,'seconds'],['damage','Damage dealt','damage','HP'],['gold_damage','Gold damage dealt','gold_damage','gold'],['kills','Kills','kills','kills'],['damage_taken_estimate','Damage taken','damage_taken_estimate','HP'],['healing_received_estimate','Healing received','healing_received_estimate','HP']];
 const movementSettings=new Map();
-function movementState(u){if(!movementSettings.has(u.id))movementSettings.set(u.id,{metric:'occupancy',others:['','',''],zoom:1,panX:0,panY:0});return movementSettings.get(u.id)}
+let movementResize=null;
+const MOVEMENT_CELL_SIZES=[50,100,200];
+function movementState(u){if(!movementSettings.has('all'))movementSettings.set('all',{metric:'occupancy',track:'All',cellSize:100,locked:false,time:null,zoom:1,panX:0,panY:0});return movementSettings.get('all')}
 function movementHistory(u){return u.spatial_timeline?.samples||u.history||[]}
-function movementUnits(u){return [u,...movementState(u).others.map(id=>D.units.find(v=>v.id===id)).filter(v=>v&&v.id!==u.id)].filter((v,i,all)=>all.findIndex(x=>x.id===v.id)===i).slice(0,4)}
-function setMovementComparison(u,slot,id){
- if(!Number.isInteger(slot)||slot<0||slot>2)return false;
- const state=movementState(u);
- if(id&&(id===u.id||!D.units.some(v=>v.id===id)||state.others.some((v,i)=>i!==slot&&v===id)))return false;
- state.others[slot]=id||'';return true;
+const INITIAL_SKIP=new Set(['the','a','an','of','and','or','in','on','at','to','for','from','with','by']);
+function movementInitials(name){let text='',depth=0;for(const character of String(name)){if(character==='(')depth++;else if(character===')')depth=Math.max(0,depth-1);else if(!depth)text+=character}return (text.match(/[\p{L}\p{N}]+/gu)||[]).filter(word=>!INITIAL_SKIP.has(word.toLowerCase())&&!/^\d+$/.test(word)).map(word=>Array.from(word)[0].toUpperCase()).join('')}
+function movementDotSize(zoom){return 14+4*Math.log2(Math.max(1,Math.min(8,zoom||1)))}
+function movementDotAppearance(unit,time){
+ const activity=nearestStatline(unit.activity_timeline?.samples||[],time),statline=nearestStatline(unit.statline_timeline?.samples||[],time);
+ const flags=activity&&time>=unit.activity_timeline.samples[0].t?(activity.values||{}):statline&&time>=unit.statline_timeline.samples[0].t?(statline.state||{}):(time>=unit.last_s?unit.last:{}),shattered=flags?.shattered===true,routing=flags?.routing===true;
+ const color=shattered?(unit.side==='Allied'?'#91b8a0':unit.side==='Enemy'?'#bb8c91':'#aaaaaa'):routing?(unit.side==='Allied'?'#d9f6e3':unit.side==='Enemy'?'#ffe1df':'#eeeeee'):(unit.side==='Allied'?'#78d698':unit.side==='Enemy'?'#f08080':'#ffffff');
+ return {color,status:shattered?'shattered':routing?'routing':'normal'};
 }
-function movementMarkup(){return '<section class="panel movement-panel"><div class="panel-heading"><h3 id="movement-heading">'+icon('movement')+' Movement and <select id="movement-measure" aria-label="Movement map measure">'+MOVEMENT_MEASURES.map(([key,label])=>'<option value="'+key+'">'+label+'</option>').join('')+'</select></h3><div class="movement-zoom"><button id="movement-zoom-out" aria-label="Zoom out map">−</button><output id="movement-zoom-level" aria-live="polite">100%</output><button id="movement-zoom-in" aria-label="Zoom in map">+</button><button id="movement-zoom-reset" aria-label="Fit entire movement map">Fit</button></div></div><div id="movement-comparisons" class="movement-comparisons"></div><div id="movement-units" class="legend muted"></div><div class="movement-time">'+chartMarkup('movement-time','Movement samples by battle time')+'</div><div class="interactive-chart movement-map"><canvas id="movement" aria-label="Chronological movement and spatial gains map"></canvas><div id="movement-positions" class="movement-positions"></div></div><div class="legend muted"><span>Earlier · green</span><span class="time-gradient"></span><span>Later · red</span><span id="movement-scale"></span></div><p id="movement-note" class="muted"></p><p id="movement-tooltip" class="muted movement-tooltip" hidden>Hover the map to inspect a sampled time and cell.</p><div id="movement-readout" class="movement-readout muted"></div></section>'}
+function movementLabelVisible(dot,dots,diameter,width,height,textWidth){return !!dot.initials}
+function selectMovementUnit(id){
+ const unit=D.units.find(u=>u.id===id);if(!unit)return false;
+ if(side!=='All'&&side!==unit.side){side=unit.side;$('side').value=side;renderTable()}
+ selectUnit(id);return true;
+}
+function movementUnits(u){return D.units}
+function movementSquareUnits(units,track,unitId=selected){return track==='Selected'?units.filter(unit=>unit.id===unitId):track==='Allied'||track==='Enemy'?units.filter(unit=>unit.side===track):units}
+function movementSquareText(metric,amount){
+ const suffix={damage:'damage dealt',gold_damage:'gold damage dealt',kills:'models killed',damage_taken_estimate:'damage taken',healing_received_estimate:'HP healed'};
+ return metric==='occupancy'?fmt(amount,1)+' seconds occupied in this square':fmt(amount)+' '+(suffix[metric]||metric)+' in this square';
+}
+function movementMarkup(){return '<section class="panel movement-panel"><div class="panel-heading"><h3 id="movement-heading">'+icon('movement')+' Movement and <select id="movement-measure" aria-label="Movement map measure">'+MOVEMENT_MEASURES.map(([key,label])=>'<option value="'+key+'">'+label+'</option>').join('')+'</select></h3><div class="movement-grid-size"><label for="movement-cell-size">Square size <output id="movement-cell-label"></output></label><input id="movement-cell-size" type="range" min="0" max="2" step="1" value="1" aria-label="Heatmap square size"><div class="movement-grid-ticks"><span>50 units</span><span>100 units</span><span>200 units</span></div></div><div class="movement-zoom"><button id="movement-zoom-out" aria-label="Zoom out map">−</button><output id="movement-zoom-level" aria-live="polite">100%</output><button id="movement-zoom-in" aria-label="Zoom in map">+</button><button id="movement-zoom-reset" aria-label="Fit entire movement map">Fit</button></div></div><p id="movement-units" class="muted"></p><div class="movement-time">'+chartMarkup('movement-time','All-unit map sample selector; click to lock or unlock')+'</div><p id="movement-lock" role="status" class="muted"></p><div class="movement-map-shell"><div id="movement-map-frame" class="interactive-chart movement-map" aria-label="Resizable movement map"><canvas id="movement" aria-label="All units and combined spatial gains"></canvas><div id="movement-positions" class="movement-positions"></div></div></div><div id="movement-resize-handle" class="movement-resize-handle" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Movement map height" aria-valuemin="240" aria-valuenow="360" title="Drag to adjust map height"></div><p class="muted movement-resize-hint">Drag the bottom edge to adjust the map height.</p><div class="movement-square-controls"><p id="movement-scale" class="muted"></p><label>Squares tracks stats of: <select id="movement-square-track" aria-label="Squares tracks stats of"><option value="All">all</option><option value="Allied">ally</option><option value="Enemy">enemy</option><option value="Selected">selected unit</option></select></label></div><p id="movement-note" class="muted"></p><p id="movement-tooltip" class="muted movement-tooltip" hidden></p></section>'}
 function movementControls(u){
- const state=movementState(u),units=movementUnits(u),mixed=new Set(units.map(v=>v.side)).size>1;
+ const state=movementState(u),units=movementUnits(u);
+ $('movement-square-track').value=state.track||'All';
+ $('movement-square-track').onchange=e=>{if(['All','Allied','Enemy','Selected'].includes(e.target.value)){state.track=e.target.value;drawMovement(u)}};
+ if(!MOVEMENT_CELL_SIZES.includes(state.cellSize))state.cellSize=100;
+ $('movement-cell-size').value=MOVEMENT_CELL_SIZES.indexOf(state.cellSize);
+ $('movement-cell-label').textContent=state.cellSize+' × '+state.cellSize+' units';
+ $('movement-cell-size').setAttribute('aria-valuetext',state.cellSize+' game units');
+ $('movement-cell-size').oninput=e=>{const size=MOVEMENT_CELL_SIZES[Number(e.target.value)];if(size){state.cellSize=size;drawMovement(u)}};
  $('movement-measure').value=state.metric;
  $('movement-measure').onchange=e=>{if(MOVEMENT_MEASURES.some(m=>m[0]===e.target.value)){state.metric=e.target.value;drawMovement(u)}};
- $('movement-comparisons').innerHTML=[0,1,2].map(i=>'<label>Compare unit '+(i+2)+'<select id="movement-unit-'+i+'" aria-label="Movement comparison unit '+(i+2)+'"><option value="">None</option>'+D.units.filter(v=>v.id!==u.id).map(v=>'<option value="'+esc(v.id)+'" '+(state.others[i]===v.id?'selected':'')+' '+(state.others.some((id,j)=>j!==i&&id===v.id)?'disabled':'')+'>'+esc(v.side+' · '+unitName(v))+'</option>').join('')+'</select></label>').join('');
- for(let i=0;i<3;i++)$('movement-unit-'+i).onchange=e=>{setMovementComparison(u,i,e.target.value);drawMovement(u)};
- $('movement-units').innerHTML=units.map((v,i)=>'<span style="color:'+(mixed?(v.side==='Allied'?'#78d698':'#f08080'):'#e2e7e9')+'">'+(i+1)+' · '+esc(unitName(v))+' · '+esc(v.side)+'</span>').join('');
- return {state,units,mixed};
+ $('movement-units').textContent=units.length+' unit dots · green: Allied · red: Enemy · pale side-colour fill: routing · grey side-colour fill: shattered · click a dot to select';
+ return {state,units};
 }
 function spatialGain(a,b,metric){
  if(metric==='occupancy')return b.t-a.t;
@@ -567,9 +598,37 @@ function zoomMovement(state,factor,w,h,x=w/2,y=h/2){
  state.panX=x-w/2-(x-w/2-(state.panX||0))*next/old;
  state.panY=y-h/2-(y-h/2-(state.panY||0))*next/old;state.zoom=next;
 }
+function bindMovementHeightResize(u,frame){
+ const handle=$('movement-resize-handle');if(!handle||handle._movementFrame===frame)return;
+ handle._movementFrame=frame;let drag=null;
+ const resize=height=>{movementState(u).frameHeight=Math.max(240,Math.round(height));clearGraphHover();drawMovement(u)};
+ handle.onpointerdown=e=>{
+  if(e.button!==0||drag)return;e.preventDefault?.();
+  drag={id:e.pointerId,y:e.clientY,height:movementState(u).frameHeight||360};
+  handle.setPointerCapture?.(e.pointerId);
+ };
+ handle.onpointermove=e=>{if(drag&&e.pointerId===drag.id){e.preventDefault?.();resize(drag.height+e.clientY-drag.y)}};
+ const finish=e=>{if(!drag||e.pointerId!==drag.id)return;drag=null;if(handle.hasPointerCapture?.(e.pointerId))handle.releasePointerCapture(e.pointerId)};
+ handle.onpointerup=finish;handle.onpointercancel=finish;handle.onlostpointercapture=finish;
+ handle.onkeydown=e=>{if(!['ArrowUp','ArrowDown','Home'].includes(e.key))return;e.preventDefault?.();resize(e.key==='Home'?240:(movementState(u).frameHeight||360)+(e.key==='ArrowDown'?40:-40))};
+}
 function drawMovement(u){
- let s=setup('movement',360);if(!s)return;
- const [c,w,h]=s,{state,units,mixed}=movementControls(u),measure=MOVEMENT_MEASURES.find(m=>m[0]===state.metric),bounds=MOVEMENT_BOUNDS;
+ const frame=$('movement-map-frame'),sizeState=movementState(u),canvasSize=$('movement');
+ const mapHeight=Math.max(240,sizeState.frameHeight||360);
+ if(frame){frame.style.height=mapHeight+'px';frame.style.width='100%';bindMovementHeightResize(u,frame)}
+ if($('movement-resize-handle'))$('movement-resize-handle').setAttribute('aria-valuenow',String(mapHeight));
+ if(canvasSize)canvasSize.style.height=mapHeight+'px';
+ if(frame&&typeof ResizeObserver==='function'&&movementResize?.frame!==frame){
+  movementResize?.observer.disconnect();let last=frame.getBoundingClientRect();
+  const observer=new ResizeObserver(()=>{
+   if(!frame.isConnected)return;
+   const current=frame.getBoundingClientRect();if(current.width<=0||current.height<=0)return;if(Math.abs(current.width-last.width)<.5&&Math.abs(current.height-last.height)<.5)return;
+   last=current;sizeState.frameHeight=Math.max(240,current.height);
+   drawMovement(u);
+  });movementResize={frame,observer};observer.observe(frame);
+ }
+ let s=setup('movement',mapHeight);if(!s)return;
+ const [c,w,h]=s,{state,units}=movementControls(u),measure=MOVEMENT_MEASURES.find(m=>m[0]===state.metric),bounds=MOVEMENT_BOUNDS;
  const histories=units.map(v=>({unit:v,history:movementHistory(v)})),projected=[];
  const start=D.timeline_start_s??D.start_s??0,end=Math.max(start+1e-6,D.end_s??1);
  if(!bounds){c.fillStyle='#a3afb7';c.fillText('No valid position samples',20,35);$('movement-note').textContent='Position samples were not recorded.';return}
@@ -582,49 +641,57 @@ function drawMovement(u){
  $('movement-zoom-out').onclick=()=>{clearGraphHover();zoomMovement(state,1/1.4,w,h);drawMovement(u)};
  $('movement-zoom-in').onclick=()=>{clearGraphHover();zoomMovement(state,1.4,w,h);drawMovement(u)};
  $('movement-zoom-reset').onclick=()=>{clearGraphHover();Object.assign(state,{zoom:1,panX:0,panY:0});drawMovement(u)};
- const {cells,comparable}=spatialCells(units,baseXY,state.metric),max=Array.from(cells.values()).reduce((peak,v)=>Math.max(peak,mixed?Math.max(...Object.values(v.bySide)):v.amount),1);
+ const cellSize=state.cellSize,{cells,comparable}=spatialCells(movementSquareUnits(units,state.track,u.id),a=>[a.xyz[0],a.xyz[2]],state.metric,cellSize),max=Array.from(cells.values()).reduce((peak,v)=>Math.max(peak,v.amount),1);
  for(let cell of cells.values()){
-  const paint=(side,x,width)=>{let amount=side?cell.bySide[side]||0:cell.amount;if(amount<=0)return;const color=!side?'225,233,238':side==='Allied'?'75,220,125':'240,80,80';c.fillStyle='rgba('+color+','+(.08+.72*Math.pow(amount/max,.65))+')';let[px,py]=movementViewPoint([x,cell.y-13],state,w,h);c.fillRect(px,py,width*zoom,26*zoom)};
-  if(mixed){paint('Allied',cell.x-13,13);paint('Enemy',cell.x,13)}else paint(null,cell.x-13,26);
+  if(cell.amount<=0)continue;
+  c.fillStyle='rgba(255,255,255,'+(.06+.88*Math.pow(cell.amount/max,.65))+')';
+  let[px,py]=xy({xyz:[cell.x-cellSize/2,0,cell.y-cellSize/2]});const edge=cellSize*scale*zoom;c.fillRect(px+.5,py+.5,Math.max(.5,edge-1),Math.max(.5,edge-1));
  }
- histories.forEach(({unit,history},index)=>{
-  const valid=history.filter(a=>a.xyz?.length===3&&a.xyz.every(Number.isFinite)),first=valid[0]?.t??start,last=valid.at(-1)?.t??end;
-  let previous=null;
-  for(let a of history){if(!hasPosition(a)){previous=null;continue}
-   let[x,y]=xy(a);projected.push({x,y,t:a.t,unitId:unit.id});
-   if(sameSegment(previous,a,true)){let[px,py]=xy(previous);c.strokeStyle=timeColor(((previous.t+a.t)/2-first)/Math.max(.001,last-first));c.lineWidth=index===0?2.5:1.7;c.beginPath();c.moveTo(px,py);c.lineTo(x,y);c.stroke()}previous=a;
-  }
- });
  const overlay=$('movement-positions'),canvas=$('movement');
- overlay.innerHTML=units.map((v,i)=>'<div id="movement-position-'+i+'" class="movement-position" hidden title="'+esc(unitName(v))+'" style="color:'+(mixed?(v.side==='Allied'?'#78d698':'#f08080'):'#f1e5bb')+'"><i></i><small style="top:'+((i%2)*18-9)+'px">'+(i+1)+'</small></div>').join('');
- $('movement-scale').textContent='Cell brightness = '+measure[1].toLowerCase()+(mixed?' · Allied green / Enemy red':' · white');
- const note=$('movement-note');note.textContent=(state.metric==='occupancy'?'':'Counter increases are assigned where first recorded.')+(state.metric==='damage_taken_estimate'||state.metric==='healing_received_estimate'?' Uses the calculated estimate.':'')+(!comparable?' No comparable samples for this measure.':'')+(histories.some(({unit})=>unit.spatial_timeline?.truncated_from_s!=null)?' Spatial display limit reached.':'');note.hidden=!note.textContent;
+ overlay.innerHTML=units.map((v,i)=>'<div id="movement-position-'+i+'" class="movement-position" hidden role="button" tabindex="0" data-movement-unit="'+esc(v.id)+'" aria-label="Select '+esc(unitName(v))+'" title="'+esc(unitName(v))+'"><i><span class="movement-initials"></span></i></div>').join('');
+ $('movement-scale').textContent='Brighter white = more of the chosen stat generated in that square';
+ const note=$('movement-note');note.textContent=(state.metric==='damage_taken_estimate'||state.metric==='healing_received_estimate'?'Uses the calculated estimate.':'')+(!comparable?' No comparable samples for this measure.':'')+(histories.some(({unit})=>unit.spatial_timeline?.truncated_from_s!=null)?' Spatial display limit reached.':'');note.hidden=!note.textContent;
+ let dots=[];
+ const times=[...new Set(histories.flatMap(v=>v.history.map(p=>p.t)))].sort((a,b)=>a-b);
+ const sampleTime=time=>nearestStatline(times.map(t=>({t})),time)?.t??start;
  const updatePositions=time=>{
-  canvas._sharedTime=time;const readouts=[];
-  histories.forEach(({unit,history},i)=>{let point=nearestStatline(history,time),marker=$('movement-position-'+i),known=point?.xyz?.length===3&&point.xyz.every(Number.isFinite);
-   if(marker){marker.hidden=!known;if(known){let[x,y]=xy(point);marker.style.left=x+'px';marker.style.top=y+'px'}}
-   readouts.push('<span>'+(i+1)+' · '+esc(unitName(unit))+': '+(known?'position sampled at '+battleTime(point.t)+'s':'position not recorded')+'</span>');
+  time=sampleTime(time);state.time=time;canvas._sharedTime=time;$('movement-time')._sharedTime=time;dots=[];
+  histories.forEach(({unit,history},i)=>{let point=nearestStatline(history,time),marker=$('movement-position-'+i),known=hasPosition(point)&&time>=history[0]?.t&&time<=history.at(-1)?.t;
+   if(marker){marker.hidden=!known;if(known){let[x,y]=xy(point);marker.style.left=x+'px';marker.style.top=y+'px';dots.push({x,y,unit,marker,initials:movementInitials(unitName(unit))})}}
   });
-  $('movement-readout').innerHTML=readouts.join('');
+  const diameter=movementDotSize(zoom),font=8;
+  c.font='700 '+font+'px Segoe UI';
+  for(const dot of dots){
+   const look=movementDotAppearance(dot.unit,time),marker=dot.marker,label=marker.querySelector?.('.movement-initials');
+   marker.style.width=marker.style.height=diameter+'px';marker.style.color=look.color;
+   marker.className='movement-position movement-'+look.status;marker.title=unitName(dot.unit)+' · '+dot.unit.side+(look.status==='normal'?'':' · '+look.status);
+   if(label){label.textContent=dot.initials;label.hidden=!movementLabelVisible(dot,dots,diameter,w,h,c.measureText(dot.initials).width)}
+  }
+  $('movement-lock').textContent=(state.locked?'Locked at ':'Previewing ')+battleTime(time)+'s · Click the time strip or map to '+(state.locked?'unlock.':'lock this sample.');
+  let cursor=$('movement-time-cursor');if(cursor){cursor.hidden=false;cursor.style.left=effectTimeX(time,start,end,30,$('movement-time').getBoundingClientRect().width)+'px'}
  };
- updatePositions(sharedTime??histories[0].history[0]?.t??start);registerTimeGraph('movement',document,updatePositions);
- const times=[...new Set([start,...histories.flatMap(v=>v.history.map(p=>p.t)),end])].sort((a,b)=>a-b);
- const timelineHeight=histories.length*18+36,tc=setup('movement-time',timelineHeight);
- if(tc){let[ctx,tw,th]=tc,left=30,x=t=>effectTimeX(t,start,end,left,tw),timeline=$('movement-time');timeline.style.height=timelineHeight+'px';ctx.font='11px Segoe UI';
+ updatePositions(state.locked?state.time:sharedTime??times[0]??start);
+ registerTimeGraph('movement',document,time=>{if(!state.locked)updatePositions(time)});
+ const timeline=$('movement-time'),tc=setup('movement-time',56);
+ if(tc){let[ctx,tw,th]=tc,left=30,x=t=>effectTimeX(t,start,end,left,tw);timeline.style.height='56px';ctx.font='11px Segoe UI';
   for(let q=0;q<=4;q++){let t=start+(end-start)*q/4,px=x(t);ctx.fillStyle='#a4b0bf';ctx.fillText(battleTime(t)+'s',Math.min(px,tw-45),th-2)}
-  histories.forEach(({history},i)=>{let y=12+i*18;ctx.fillStyle='#c9b478';ctx.fillText(String(i+1),0,y+4);let previous=null;
-   for(let p of history){if(hasPosition(p)){ctx.fillRect(x(p.t)-1,y-3,2,6);if(hasPosition(previous)&&sameSegment(previous,p,true)){ctx.strokeStyle='#b7a16e';ctx.beginPath();ctx.moveTo(x(previous.t),y);ctx.lineTo(x(p.t),y);ctx.stroke()}}previous=p}
-  });
-  registerTimeGraph('movement-time',document,time=>{let cursor=$('movement-time-cursor');if(cursor){cursor.hidden=false;cursor.style.left=x(time)+'px'}timeline._sharedTime=time});
-  timeline.onmousemove=e=>{beginGraphHover(timeline,e);let r=timeline.getBoundingClientRect(),px=(e.clientX-r.left)*tw/r.width,py=(e.clientY-r.top)*th/(r.height||th);if(px<left||px>tw-16)return;let index=Math.max(0,Math.min(histories.length-1,Math.round((py-12)/18))),time=start+(px-left)/(tw-left-16)*(end-start),sample=nearestStatline(histories[index].history,time);publishTime(sample?.t??time,timeline)};timeline.onmouseleave=clearGraphHover;timeline.onclick=e=>rotateGraphTooltip(timeline,e);timeline.tabIndex=0;timeline.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault?.();let at=sharedTime??start,next=e.key==='Home'?start:e.key==='End'?end:e.key==='ArrowLeft'?times.findLast(t=>t<at):times.find(t=>t>at);if(next!=null)publishTime(next,timeline)};
+  ctx.strokeStyle='#657581';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(left,19);ctx.lineTo(tw-16,19);ctx.stroke();
+  ctx.fillStyle='#d8dfe8';for(let time of times)ctx.fillRect(x(time)-.5,10,1,18);
+  registerTimeGraph('movement-time',document,time=>{if(!state.locked){timeline._sharedTime=time;updatePositions(time)}});
+  timeline.onmousemove=e=>{if(state.locked)return;let r=timeline.getBoundingClientRect(),px=(e.clientX-r.left)*tw/r.width;if(px<left||px>tw-16)return;publishTime(sampleTime(start+(px-left)/(tw-left-16)*(end-start)),timeline)};
+  timeline.onclick=()=>{state.locked=!state.locked;updatePositions(state.time)};
+  timeline.onmouseleave=()=>{};timeline.tabIndex=0;
+  timeline.onkeydown=e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault?.();timeline.onclick();return}if(state.locked||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault?.();let at=state.time??start,next=e.key==='Home'?times[0]:e.key==='End'?times.at(-1):e.key==='ArrowLeft'?times.findLast(t=>t<at):times.find(t=>t>at);if(next!=null)publishTime(next,timeline)};
  }
- canvas.onmousemove=e=>{if(state.drag?.moved)return;beginGraphHover(canvas,e);let r=canvas.getBoundingClientRect(),x=(e.clientX-r.left)*w/r.width,y=(e.clientY-r.top)*h/r.height,bx=(x-w/2-state.panX)/zoom+w/2,by=(y-h/2-state.panY)/zoom+h/2,key=Math.floor(bx/28)+','+Math.floor(by/28),cell=cells.get(key),candidate=null,best=Infinity;
-  for(let point of projected){let distance=(point.x-x)**2+(point.y-y)**2;if(distance<best-1e-6||Math.abs(distance-best)<1e-6&&Math.abs(point.t-(sharedTime??start))<Math.abs((candidate?.t??0)-(sharedTime??start))){candidate=point;best=distance}}
-  if(candidate&&(best<=28**2||cell))publishTime(candidate.t,canvas);
-  $('movement-tooltip').hidden=!tooltipsEnabled||tooltipCorner===4;$('movement-tooltip').textContent=cell?fmt(cell.amount,measure[3]==='seconds'?1:0)+' '+measure[3]+' · '+cell.visits.length+' comparable sampled intervals'+(mixed?' · Allied '+fmt(cell.bySide.Allied||0)+' / Enemy '+fmt(cell.bySide.Enemy||0):''):'No comparable '+measure[1].toLowerCase()+' recorded in this cell';
+ canvas.onmousemove=e=>{if(state.drag?.moved)return;let r=canvas.getBoundingClientRect(),x=(e.clientX-r.left)*w/r.width,y=(e.clientY-r.top)*h/r.height,bx=(x-w/2-state.panX)/zoom+w/2,by=(y-h/2-state.panY)/zoom+h/2,worldX=xmin+(bx-ox)/scale,worldZ=zmin+(by-oy)/scale,cell=cells.get(Math.floor(worldX/cellSize)+','+Math.floor(worldZ/cellSize));
+  const names=dots.filter(p=>(p.x-x)**2+(p.y-y)**2<=(movementDotSize(zoom)/2+4)**2).map(p=>unitName(p.unit));
+  $('movement-tooltip').hidden=false;$('movement-tooltip').textContent=(names.length?names.join(' · ')+' — ':'')+(comparable?movementSquareText(state.metric,cell?.amount||0):'No recorded '+measure[1].toLowerCase()+' in this square');
  };
- canvas.onmouseleave=()=>clearGraphHover();canvas.onclick=e=>{if(state.suppressClick){state.suppressClick=false;return}rotateGraphTooltip(canvas,e)};
+ canvas.onmouseleave=()=>{$('movement-tooltip').hidden=true};canvas.onclick=()=>{if(state.suppressClick){state.suppressClick=false;return}state.locked=!state.locked;updatePositions(state.time)};
+ overlay.onmousemove=canvas.onmousemove;overlay.onclick=e=>{const dot=e.target?.closest?.('[data-movement-unit]');if(dot){e.stopPropagation?.();selectMovementUnit(dot.getAttribute('data-movement-unit'));return}canvas.onclick(e)};
+ overlay.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){const dot=e.target?.closest?.('[data-movement-unit]');if(dot){e.preventDefault?.();selectMovementUnit(dot.getAttribute('data-movement-unit'))}}};
  canvas.onwheel=e=>{e.preventDefault?.();clearGraphHover();const r=canvas.getBoundingClientRect(),x=(e.clientX-r.left)*w/r.width,y=(e.clientY-r.top)*h/(r.height||h);zoomMovement(state,Math.exp(-e.deltaY*.002),w,h,x,y);drawMovement(u)};
+ overlay.onwheel=canvas.onwheel;
  canvas.onpointerdown=e=>{if(e.button!==0||state.zoom<=1)return;state.suppressClick=false;state.drag={x:e.clientX,y:e.clientY,panX:state.panX,panY:state.panY,moved:false};canvas.setPointerCapture?.(e.pointerId)};
  canvas.onpointermove=e=>{let drag=state.drag;if(!drag)return;const r=canvas.getBoundingClientRect(),dx=(e.clientX-drag.x)*w/r.width,dy=(e.clientY-drag.y)*h/(r.height||h);if(!drag.moved&&Math.hypot(dx,dy)<4)return;drag.moved=true;state.panX=drag.panX+dx;state.panY=drag.panY+dy;clearGraphHover();drawMovement(u)};
  const finishDrag=e=>{if(state.drag){state.suppressClick=state.drag.moved;state.drag=null}canvas.releasePointerCapture?.(e.pointerId)};
@@ -683,7 +750,7 @@ function renderRecorded(u){let rows=[['Calculated damage taken',cellText(u,'dama
  $('detail').innerHTML=sourcePanel(u)+'<section class="panel"><h3 title="Sampled estimates; activity times can overlap. Firing-state damage can include spells. Healing allowance is read directly from the game.">Recorded observations</h3><dl>'+rows.map(([a,b,key])=>'<dt>'+icon(key)+' '+esc(a)+'</dt><dd>'+esc(b)+'</dd>').join('')+'</dl></section>';
  let armies=D.armies.map((a,i)=>({a,i})).filter(({a})=>a.last.side===u.side&&String(a.last.id)===String(u.army));if(armies.length&&$('army'))$('army').value=String(armies[0].i);
 }
-function syncHeader(){let height=document.querySelector('.report-heading')?.getBoundingClientRect?.()?.height;if(height)document.documentElement?.style?.setProperty?.('--report-header-height',Math.ceil(height)+'px')}
+function syncHeader(){let heading=document.querySelector('.report-heading'),height=heading?.hidden?0:heading?.getBoundingClientRect?.()?.height;if(height!=null)document.documentElement?.style?.setProperty?.('--report-header-height',Math.ceil(height)+'px')}
 function metricNote(metric,u){
  const notes={
   hp_cached:'Remaining HP across the unit.',
@@ -723,6 +790,7 @@ function windsRechargeText(army){const s=windRechargeSummary(army);return 'Highe
 function drawCharts(){syncHeader();const u=D.units.find(u=>u.id===selected);if(view!=='unit')return;if(u){drawMovement(u);drawEffects(u);drawActivities(u);for(let i=0;i<4;i++){if(!$('graph-'+i))continue;let metric=graphMetrics[i];plot('graph-'+i,u.history,[metric],['#d9bd78'],u);let heading=$('graph-heading-'+i);if(heading)heading.title=hideGraphExplanations?'':metricNote(metric,u)}}if(!$('army'))return;const a=D.armies[Number($('army').value)||0];if(a){plot('winds',a.history,['current','reserve'],['#d9bd78','#76bbdc']);$('winds-rate').textContent=windsRechargeText(a)}}
 $('recorded-details').ontoggle=drawCharts;
 function battleOverviewTitle(pathname=window.location?.pathname){
+ if(window.__WH3_EMBEDDED__)return 'Battle overview: '+(D.report_filename||'Recorded battle');
  let name=pathname?.split('/').pop()||'';try{name=decodeURIComponent(name)}catch(_){}
  name=name.replace(/\.html?$/i,'')||D.report_filename||'Recorded battle';
  return 'Battle overview: '+name;
@@ -731,4 +799,5 @@ function renderBattleResult(){let outcome=D.battle_result?.outcome,visible=['Vic
 $('subtitle').textContent=seconds(D.time_reference?.battle_origin_known?(D.end_s||0):(D.end_s||0)-(D.start_s||0))+(D.time_reference?.battle_origin_known?' battle seconds · ':' simulation seconds · ')+D.samples+' samples';$('subtitle').title=D.time_reference?.precision||'';
 document.title=battleOverviewTitle();
 renderBattleResult();
+function applyReportAssets(assets){Object.assign(A,assets);D.assets=A;renderTable();selectUnit(selected);syncHeader();refreshMinis()}
 renderTable();selectUnit(scopedUnits()[0]?.id);showView('main');window.addEventListener('resize',()=>{syncHeader();drawCharts()});

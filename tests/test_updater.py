@@ -261,6 +261,11 @@ class UpdateLifecycleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp).resolve();stage=root/'stage';stage.mkdir();dest=root/'installed';dest.mkdir()
             (dest/'WH3BattleLogger.exe').write_bytes(b'old')
+            captures=dest/'captures';captures.mkdir()
+            (captures/'old.html').write_text('old export')
+            (captures/'old.wh3log').write_bytes(b'keep log')
+            (captures/'logger.key').write_bytes(b'keep key')
+            (dest/'keep.html').write_text('outside captures')
             process=subprocess.Popen([sys.executable,'-c','import time;time.sleep(0.3)'])
             try:
                 with patch('updater.sys.executable',str(stage/'WH3BattleLogger.exe')),patch('updater.install_files') as install,patch('updater.subprocess.Popen') as launch,patch('updater.ProgressWindow',FakeProgress):
@@ -268,6 +273,10 @@ class UpdateLifecycleTests(unittest.TestCase):
                     self.assertIsNotNone(process.poll())
                     self.assertEqual(install.call_args.args[:2],(stage.resolve(),dest.resolve()))
                     launch.assert_called_once()
+                    self.assertFalse((captures/'old.html').exists())
+                    self.assertEqual((captures/'old.wh3log').read_bytes(),b'keep log')
+                    self.assertEqual((captures/'logger.key').read_bytes(),b'keep key')
+                    self.assertTrue((dest/'keep.html').exists())
                     self.assertIn('--cleanup-update',launch.call_args.args[0])
             finally:process.wait(timeout=5)
     def test_cancelled_installer_restarts_original_without_new_cli_flags(self):
@@ -296,8 +305,9 @@ class UpdateLifecycleTests(unittest.TestCase):
             def is_alive(self):return True
             def set_tooltip(self,text):pass
             def stop(self):calls.append('tray stopped')
-        app=BackgroundApp(worker=Worker(),tray=Tray());app.updates.pending=Path('staged')
-        with patch('release_app.launch_installer',side_effect=lambda *args:calls.append('installer')):app.run()
+        with patch('release_app.CaptureMaintenance'),patch('release_app.MainMenu'),patch('release_app.BackgroundApp.build_missing'):
+            app=BackgroundApp(worker=Worker(),tray=Tray());app.updates.pending=Path('staged')
+            with patch('release_app.launch_installer',side_effect=lambda *args:calls.append('installer')):app.run()
         self.assertEqual(calls,['saved','tray stopped','installer'])
 
 if __name__=='__main__':unittest.main()

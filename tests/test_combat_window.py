@@ -124,13 +124,14 @@ class CombatWindowTests(unittest.TestCase):
         result=next(frames(1,1));result['battle_phase']=8
         combat=next(frames(1,1));combat.update(battle_phase=5,sim_s=0)
         combat['units'][0]['primary_ammo']=20
-        sequence=iter([(1,deployment),(None,None),(2,result),(None,None),(3,combat),(None,None)])
+        sequence=iter([(1,deployment),(None,None),(2,result),(None,None),(3,combat),(3,combat),(None,None)])
         project=Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory(dir=project/'build') as temp:
             worker=Worker(temp,queue.Queue(1));worker.interval=.001
             class Reader:
                 def __init__(self,*args):self.frame=None
                 def sample(self):
+                    if worker.late_start_request:worker.answer_late_start(worker.late_start_request,True)
                     # Neither deployment nor results-only sessions may open a file.
                     if self.frame is deployment or self.frame is result:
                         self_test.assertEqual(len(worker.recorders),0)

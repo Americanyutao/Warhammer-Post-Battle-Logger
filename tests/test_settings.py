@@ -22,7 +22,7 @@ class SettingsTests(unittest.TestCase):
         tray=MagicMock();tray.available=True;tray.ready=threading.Event();tray.ready.set();tray.thread.is_alive.return_value=True
         tray.actions=queue.Queue()
         for action in ('settings','settings','exit'):tray.actions.put(action)
-        with tempfile.TemporaryDirectory() as d,patch('release_app.ProgressWindow') as window:
+        with tempfile.TemporaryDirectory() as d,patch('release_app.MainMenu'),patch('release_app.ProgressWindow') as window:
             current=window.return_value.start.return_value;current.thread.is_alive.return_value=True
             BackgroundApp(root=d,worker=worker,tray=tray).run()
             self.assertEqual(window.call_count,1);current.focus.assert_called_once();current.close.assert_called_once()
@@ -53,7 +53,7 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(full[key],small[key])
         self.assertFalse(small['icons_enabled']);self.assertTrue(full['icons_enabled'])
 
-    def test_saved_preference_is_used_by_automatic_report_and_can_be_overridden(self):
+    def test_saved_preference_is_used_by_manual_export_and_can_be_overridden(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);captures=root/'captures';captures.mkdir();path=captures/'sample.wh3log';key=bytes(range(32))
             Settings(root).save(icons=False)
@@ -61,7 +61,8 @@ class SettingsTests(unittest.TestCase):
             for f in frames(2,2):recorder.submit(f)
             recorder.finish({});recorder.join(10)
             self.assertTrue(recorder.done.is_set());self.assertIsNone(recorder.error)
-            original=path.read_bytes();small=Path(recorder.report_path).read_text(encoding='utf-8')
+            self.assertIsNone(recorder.report_path);self.assertFalse(path.with_suffix('.html').exists())
+            original=path.read_bytes();small=convert(path,key,root/'small.html',report_options=load_report_options(root)).read_text(encoding='utf-8')
             full=convert(path,key,root/'full.html',report_options=dict(icons=True)).read_text(encoding='utf-8')
             read=lambda html:json.loads(re.search(r'<script id="data" type="application/json">(.*?)</script>',html,re.S)[1])
             self.assertEqual(len(read(small)['assets']['images']),1)

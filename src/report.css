@@ -39,3 +39,25 @@ label:has(>input[type="checkbox"]){display:flex;align-items:center;gap:7px;font-
 .movement-comparisons{margin:10px 0 6px;gap:10px}.movement-panel #movement-units{font-size:11px;gap:6px 14px;margin:0 0 4px}.movement-time .chart-with-rails{padding:0}.movement-time .interactive-chart{margin-top:4px}.movement-map{margin-top:4px}.movement-panel .movement-zoom{display:flex;align-items:center;gap:5px}.movement-zoom button{padding:4px 9px;font-size:13px}.movement-zoom output{font-size:11px;min-width:38px;text-align:center}.movement-map canvas{touch-action:none}.movement-panel #movement-note:empty{display:none}
 
 label:has(>input[type="checkbox"]:disabled){opacity:.4;cursor:default}label>input[type="checkbox"]:disabled{cursor:default}
+
+.movement-position{pointer-events:auto;cursor:help}.movement-position i{border-radius:50%;transform:none;background:currentColor;width:8px;height:8px}.movement-time canvas{cursor:crosshair}#movement-lock{color:#E5A93C}
+
+.movement-position{transform:translate(-50%,-50%);cursor:pointer;white-space:normal;text-shadow:none;z-index:2}
+.movement-position i{box-sizing:border-box;display:flex;width:100%;height:100%;align-items:center;justify-content:center;font-style:normal;border:1px solid #f0f3f6;border-radius:50%;background:currentColor;box-shadow:0 1px 3px #000}
+.movement-initials{color:#10171d;font:700 8px/1 "Segoe UI",sans-serif;pointer-events:none;user-select:none}
+.movement-routing i{border:1px solid #e3e7ec;box-shadow:0 1px 3px #000}
+.movement-shattered i{border:1px solid #c4c7cc;box-shadow:0 1px 3px #000}
+
+.movement-panel>.panel-heading{justify-content:flex-start;flex-wrap:wrap;gap:14px 24px}.movement-grid-size{flex:0 1 250px;min-width:180px;max-width:100%;margin:0}.movement-panel .movement-zoom{margin-left:auto}.movement-grid-size label{display:flex;justify-content:space-between;font-size:12px;color:#dce5ec}.movement-grid-size input{display:block;width:100%;margin:10px 0 4px;accent-color:#E5A93C}.movement-grid-ticks{display:flex;justify-content:space-between;font-size:11px;color:#9FA8B6}
+
+.movement-map-shell{width:100%;max-width:100%;overflow:hidden}.movement-map{resize:none;overflow:hidden;width:100%;height:360px;min-width:min(320px,100%);min-height:240px;max-width:100%;margin:0}.movement-map canvas{display:block;width:100%;box-sizing:border-box}.movement-resize-hint{font-size:11px;margin:5px 0}
+
+.movement-square-controls{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:10px 0}.movement-square-controls p{margin:0}.movement-square-controls label{margin-left:auto;display:flex;align-items:center;gap:8px;white-space:nowrap;font-size:12px}.movement-square-controls select{font-size:12px;padding:4px 8px}
+
+.unit-header{padding-right:48px}.unit-header-minimize{position:absolute;bottom:6px;right:6px;padding:2px 9px;font-size:21px;line-height:24px}#unit-header-restore{position:fixed;top:8px;right:28px;z-index:40;font-size:12px;padding:7px 10px;box-shadow:0 3px 12px #0008}
+
+.movement-resize-handle{width:100%;height:18px;display:flex;align-items:center;justify-content:center;cursor:ns-resize;touch-action:none;user-select:none;border-top:1px solid var(--line);border-radius:0 0 5px 5px;background:#111b23}.movement-resize-handle::after{content:"";width:54px;height:4px;border-radius:4px;background:#9FA8B6}.movement-resize-handle:hover::after,.movement-resize-handle:focus-visible::after{background:var(--gold)}.movement-resize-handle:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}
+
+.movement-time .chart-cursor{top:6px;bottom:20px;background:#e9cf8a;z-index:3}.movement-time .chart-cursor::before{content:"";position:absolute;left:-3px;top:4px;width:7px;height:7px;border-radius:50%;background:#eed49a}
+
+.report-navigation{display:flex;align-items:center;justify-content:flex-end;gap:12px}.report-socials{display:flex;align-items:center;gap:10px;height:28px}.report-socials a{display:flex;align-items:center;justify-content:center;width:30px;height:28px;border-radius:5px}.report-socials svg{width:24px;height:24px}.report-socials a:hover{background:#202f3b}.report-socials a:focus-visible{outline:2px solid var(--gold);outline-offset:2px}.report-navigation nav{align-items:center}.report-navigation .scope-control{white-space:nowrap}.report-navigation select{height:39px}.unit-picker select{width:100%}@media(max-width:600px){.report-navigation{gap:6px}.report-navigation .scope-control{gap:4px}.report-navigation select{height:32px;padding:5px}.report-socials{height:24px}.report-socials a{height:24px}.report-heading .report-controls{max-width:100%}.report-heading{flex-wrap:wrap}}

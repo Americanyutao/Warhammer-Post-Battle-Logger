@@ -196,7 +196,7 @@ class EncryptionTests(unittest.TestCase):
         data=json.loads(re.search(r'<script id="data" type="application/json">(.*?)</script>',out.read_text(encoding='utf-8'),re.S).group(1))
         self.assertEqual(data['capture']['encrypted_bytes'],len(original))
         self.assertEqual(data['capture']['legacy_reported_encrypted_bytes'],1)
-        self.assertEqual(data['capture']['process_cpu_one_core_average_percent'],5)
+        self.assertNotIn('process_cpu_one_core_average_percent',data['capture']);self.assertNotIn('process_cpu_seconds',data['capture']);self.assertNotIn('performance',data)
         self.assertEqual(self.path.read_bytes(),original)
 
     def test_legacy_native_winds_reciprocal_migrates_only_in_report(self):
@@ -224,7 +224,7 @@ class EncryptionTests(unittest.TestCase):
         r.finish(dict(reason='test'));r.join(10)
         self.assertIsNone(r.error);self.assertFalse(r.is_alive())
         self.assertEqual(sum(x['kind']=='sample' for x in read_log(self.path,self.key)),count)
-        self.assertTrue(r.report_path.exists())
+        self.assertIsNone(r.report_path);self.assertFalse(self.path.with_suffix('.html').exists())
     def test_capture_size_limit_is_recorded(self):
         r=Recorder(self.path,self.key,{},max_bytes=1)
         for f in frames(1,2):r.submit(f)
@@ -363,10 +363,11 @@ class RateTests(unittest.TestCase):
             for frame in raw:frame['battle_phase']=5
             deployment=copy.deepcopy(raw[0]);deployment.update(battle_phase=4,sim_s=300)
             result=copy.deepcopy(raw[1]);result['battle_phase']=8
-            sequence=iter([(1,deployment),(1,deployment),(1,raw[0]),(1,result),(None,None),(2,raw[0]),(2,raw[1]),(None,None)])
+            sequence=iter([(1,deployment),(1,deployment),(1,raw[0]),(1,result),(None,None),(2,raw[0]),(2,raw[0]),(2,raw[1]),(None,None)])
             class Reader:
                 def __init__(self,*args):self.frame=None
                 def sample(self):
+                    if w.late_start_request:w.answer_late_start(w.late_start_request,True)
                     try:token,self.frame=next(sequence)
                     except StopIteration:
                         w.stop_event.set();token,self.frame=None,None
@@ -382,7 +383,8 @@ class RateTests(unittest.TestCase):
                 w.start();w.join(10)
             self.assertFalse(w.is_alive());self.assertEqual(len(w.recorders),2)
             for r in w.recorders:
-                self.assertIsNone(r.error);self.assertTrue(r.done.is_set());self.assertTrue(r.report_path.exists())
+                self.assertIsNone(r.error);self.assertTrue(r.done.is_set());self.assertIsNone(r.report_path)
+                self.assertFalse(r.path.with_suffix('.html').exists())
                 records=list(read_log(r.path,load_key(Path(temp)/'captures/logger.key')))
                 samples=[a for a in records if a['kind']=='sample']
                 self.assertEqual(len(samples),2)

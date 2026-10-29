@@ -18,6 +18,7 @@ import zlib
 from version import VERSION
 from update_manifest import MANIFEST, ARCHIVE, app_path, app_files, file_hash, validate_manifest, MAX_TOTAL
 from update_ui import ProgressWindow, Cancelled
+from release_notes import fetch_release,summarize_notes,cached_notes,save_notes,UNAVAILABLE_NOTES
 
 REPOSITORY='Americanyutao/Warhammer-Post-Battle-Logger'
 API=f'https://api.github.com/repos/{REPOSITORY}/releases/latest'
@@ -46,9 +47,8 @@ def validate_asset(asset, maximum=MAX_DOWNLOAD):
     return asset
 
 
-def latest_release():
-    with urllib.request.urlopen(request(API,Accept='application/vnd.github+json'),timeout=20) as response:
-        release=json.loads(response.read(MAX_MANIFEST))
+def latest_release(release=None):
+    if release is None:release=fetch_release(timeout=20)
     if release.get('draft') or release.get('prerelease'):
         raise ValueError('The latest release is not a stable public release.')
     if version_tuple(release['tag_name'])<=version_tuple(VERSION):return None
@@ -170,22 +170,22 @@ def stage_update(asset, files, changed, removed, destination, progress=lambda *a
 
 
 def message(text,question=False):
-    user=ctypes.WinDLL('user32',use_last_error=True)
-    user.MessageBoxW.argtypes=[w.HWND,w.LPCWSTR,w.LPCWSTR,w.UINT]
-    return user.MessageBoxW(None,text,'Battle Logger updates',0x10000|(0x24 if question else 0x40))==6
+    from main_menu import silent_message
+    return silent_message(text,'Battle Logger updates',question)
 
 
 class UpdateChecker:
     def __init__(self,actions):
         self.actions=actions;self.thread=None;self.pending=None
-    def start(self):
+    def start(self,release=None,download_approved=False):
         if self.pending or (self.thread and self.thread.is_alive()):return
-        self.thread=threading.Thread(target=self.run,name='battle-logger-update',daemon=True);self.thread.start()
-    def run(self):
+        kwargs=dict(release=release,download_approved=download_approved) if release is not None else {}
+        self.thread=threading.Thread(target=self.run,kwargs=kwargs,name='battle-logger-update',daemon=True);self.thread.start()
+    def run(self,release=None,download_approved=False):
         stage=window=None
         try:
             window=ProgressWindow().start()
-            release=latest_release()
+            if release is None:release=latest_release()
             window.update('Checking release information…')
             if release is None:
                 window.close();message(f'You are up to date (version {VERSION}).');return
@@ -198,7 +198,7 @@ class UpdateChecker:
             changed,removed=plan_update(files,destination,window.update)
             size=sum(end-start for start,end,_ in range_groups(changed))
             window.close();window=None
-            if not message(f'Version {tag} is available (installed: {VERSION}).\n\nDownload {size/1048576:.1f} MB of changes ({len(changed)} files)? Unchanged files will be kept. The logger will keep recording.',True):return
+            if not download_approved and not message(f'Version {tag} is available (installed: {VERSION}).\n\nDownload {size/1048576:.1f} MB of changes ({len(changed)} files)? Unchanged files will be kept. The logger will keep recording.',True):return
             window=ProgressWindow().start()
             stage=stage_update(asset,files,changed,removed,destination,window.update)
             window.update('Testing the new application…',0,1)
@@ -217,6 +217,34 @@ class UpdateChecker:
         finally:
             if window:window.close()
             if stage:shutil.rmtree(stage.parent,ignore_errors=True)
+
+
+class StartupReleaseCheck:
+    """No progress/error popup at startup; offer downloads through the menu."""
+    def __init__(self,root,menu,actions):
+        self.root=Path(root);self.menu=menu;self.actions=actions
+        self.stopped=threading.Event()
+        self.thread=threading.Thread(target=self.run,name='battle-logger-startup-release',daemon=True)
+
+    def start(self):self.thread.start();return self
+    def stop(self):self.stopped.set()
+
+    def run(self):
+        if self.stopped.is_set():return
+        try:
+            installed=fetch_release('v'+VERSION)
+            summary=summarize_notes(installed.get('body'))
+            if self.stopped.is_set():return
+            self.menu.set_release_notes(summary)
+            try:save_notes(self.root,summary)
+            except OSError:pass
+        except Exception:
+            if not self.stopped.is_set():self.menu.set_release_notes(cached_notes(self.root) or UNAVAILABLE_NOTES)
+        if self.stopped.is_set():return
+        try:
+            release=latest_release(fetch_release())
+            if release and not self.stopped.is_set():self.actions.put(('startup_update_available',release))
+        except Exception:pass # Offline/rate-limited boots keep recording quietly.
 
 
 
@@ -298,6 +326,11 @@ def apply_update(destination,pid):
         window.update('Finishing saving and closing the logger…')
         wait_for_exit(pid)
         install_files(stage,destination,window.update)
+        # The new staged helper also handles the first upgrade from an older app
+        # whose Check for updates action does not yet know about HTML cleanup.
+        from log_migration import delete_capture_html
+        try:delete_capture_html(destination)
+        except OSError:window.update('Update installed. Some old HTML exports could not be removed.',check_cancel=False)
         subprocess.Popen([str(destination/'WH3BattleLogger.exe'),'--cleanup-update',str(stage.parent),'--wait-pid',str(os.getpid())],cwd=destination)
     except Cancelled:
         # install_files has restored every original file before this branch.

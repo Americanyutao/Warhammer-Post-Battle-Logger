@@ -13,6 +13,8 @@ import time
 P=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(os.environ.get('WH3_BUILD_DEPS',P/'build/packaging-deps')))
 import pefile
+sys.path.insert(0,str(P/'src'))
+from version import VERSION
 
 
 def main():
@@ -46,6 +48,9 @@ def main():
     user.GetWindowTextW.argtypes=[w.HWND,w.LPWSTR,ctypes.c_int]
     user.IsWindowVisible.argtypes=[w.HWND];user.IsWindowVisible.restype=w.BOOL
     user.PostMessageW.argtypes=[w.HWND,w.UINT,w.WPARAM,w.LPARAM];user.PostMessageW.restype=w.BOOL
+    user.GetDlgItem.argtypes=[w.HWND,ctypes.c_int];user.GetDlgItem.restype=w.HWND
+    user.SendMessageW.argtypes=[w.HWND,w.UINT,w.WPARAM,w.LPARAM];user.SendMessageW.restype=ctypes.c_ssize_t
+    user.IsWindowEnabled.argtypes=[w.HWND];user.IsWindowEnabled.restype=w.BOOL
     process=None
     with tempfile.TemporaryDirectory(prefix='release-check-',dir=P/'build') as temp:
         try:
@@ -69,7 +74,29 @@ def main():
                 if process.poll() is not None:raise RuntimeError('Release exited before tray startup.')
                 time.sleep(.1)
             assert tray,'Release did not create its notification window.'
-            assert not any(visible for _,_,visible in windows()),'A visible app window was created.'
+            main_menu=next((hwnd for hwnd,title,visible in windows() if title=='WARHAMMER III Battle Logger' and visible),None)
+            assert main_menu,'The main menu did not open at startup.'
+            deadline=time.monotonic()+5;welcome=None
+            while time.monotonic()<deadline:
+                welcome=next((hwnd for hwnd,title,visible in windows() if title==f"What's new in v{VERSION}" and visible),None)
+                if welcome and user.GetDlgItem(welcome,11):break
+                time.sleep(.05)
+            assert welcome,'The separate welcome did not open.'
+            assert not user.IsWindowEnabled(main_menu),'The modal should block background controls.'
+            user.SendMessageW(user.GetDlgItem(welcome,11),0xf5,0,0)
+            deadline=time.monotonic()+5
+            while not user.IsWindowEnabled(main_menu) and time.monotonic()<deadline:time.sleep(.05)
+            assert user.IsWindowEnabled(main_menu),'Closing the welcome did not restore the menu.'
+            # X hides the menu while the tray and worker remain alive.
+            user.PostMessageW(main_menu,0x10,0,0)
+            deadline=time.monotonic()+5
+            while user.IsWindowVisible(main_menu) and time.monotonic()<deadline:time.sleep(.05)
+            assert not user.IsWindowVisible(main_menu) and process.poll() is None
+            # Shell tray double-click message reopens the same menu.
+            user.PostMessageW(tray,0x8001,1,0x203)
+            deadline=time.monotonic()+5
+            while not user.IsWindowVisible(main_menu) and time.monotonic()<deadline:time.sleep(.05)
+            assert user.IsWindowVisible(main_menu),'Tray double-click did not reopen the menu.'
             assert (Path(temp)/'captures/logger.key').stat().st_size==32
             # A second launch must not start another collector or capture key.
             second=Path(temp)/'second'
@@ -77,7 +104,7 @@ def main():
             assert not second.exists()
             assert user.PostMessageW(tray,0x111,2,0),'Could not send the native Exit command.'
             assert process.wait(timeout=15)==0,'Exit did not complete cleanly.'
-            result.update(gui_subsystem=True,embedded_icons=True,no_visible_windows=True,
+            result.update(gui_subsystem=True,embedded_icons=True,startup_menu=True,tray_double_click=True,
                 single_instance=True,worker_started=True,clean_native_exit=True)
         finally:
             if process and process.poll() is None:

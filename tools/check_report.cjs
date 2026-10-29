@@ -8,9 +8,15 @@ function run(block=false){const nodes={},ids=new Set(['data',...[...markup.match
  const windows=[];
  function makeWindow(){const events={},els={},doc={head:{appendChild(){}},body:{innerHTML:''},open(){},write(){},close(){},createElement:()=>({}),getElementById(id){if(!doc.body.innerHTML.includes('id="'+id+'"'))return null;return els[id]??={style:{},value:'',textContent:'',getBoundingClientRect:()=>({width:700}),getContext:()=>canvas}}};let win={document:doc,closed:false,devicePixelRatio:1,addEventListener(k,v){events[k]=v},close(){this.closed=true;events.pagehide?.()},focus(){this.focused=true}};doc.defaultView=win;windows.push(win);return win}
  const fakeWindow={devicePixelRatio:1,addEventListener(){},open:makeWindow};
- const c=vm.createContext({document:{getElementById:node,querySelector:s=>s==='.report-heading'?{getBoundingClientRect:()=>({height:100})}:s==='style'?{textContent:html.match(/<style>([\s\S]*?)<\/style>/)[1]}:nodes.heading??={},createElement:()=>({}),documentElement:{style:{setProperty:(k,v)=>styles.set(k,v)}}},localStorage:{getItem:k=>{if(block)throw Error();return storage.get(k)||null},setItem:(k,v)=>{if(block)throw Error();storage.set(k,v)}},window:fakeWindow,console});vm.runInContext(script,c);return{node,windows,e:s=>vm.runInContext(s,c)}}
+ const c=vm.createContext({document:{getElementById:node,querySelector:s=>s==='.report-heading'?{getBoundingClientRect:()=>({height:100})}:s==='style'?{textContent:html.match(/<style>([\s\S]*?)<\/style>/)[1]}:nodes.heading??={},createElement:()=>({}),documentElement:{style:{setProperty:(k,v)=>styles.set(k,v)}}},localStorage:{getItem:k=>{if(block)throw Error();return storage.get(k)||null},setItem:(k,v)=>{if(block)throw Error();storage.set(k,v)}},window:fakeWindow,ResizeObserver:class{constructor(callback){this.fire=callback}observe(){}disconnect(){}},console});vm.runInContext(script,c);return{node,windows,e:s=>vm.runInContext(s,c)}}
 const r=run(),n=r.node,e=r.e;
 
+// Show scope label is plain text and follows all side changes, including unit selection.
+for(const [scope,label] of [['Allied','ally'],['Enemy','enemy'],['All','all']]){n('side').value=scope;n('side').onchange();assert.equal(n('unit-picker-label').textContent,'Choose unit from '+label)}
+n('side').value='Allied';n('side').onchange();
+assert.match(markup,/<div class="report-navigation"><label class="scope-control">[\s\S]*?<nav aria-label="Report views"><button id="main-tab"/);
+assert.match(markup,/href="https:\/\/www.youtube.com\/@Americanyutao" target="_blank" rel="noopener noreferrer" aria-label="YouTube"/);
+assert.match(markup,/href="https:\/\/discord.com\/invite\/v27y7AW7Kz" target="_blank" rel="noopener noreferrer" aria-label="Discord"/);
 // Main table percentages floor to integers; unit-detail formatting retains precision.
 assert.equal(e('cellText({last:{hp_cached:999,hp_max_cached:1000}},"hp_cached")'),'(99%) 999/1,000');
 assert.equal(e('hpText({last:{hp_cached:999,hp_max_cached:1000}})'),'(99.9%) 999/1,000');
@@ -298,7 +304,7 @@ assert.equal(e('lineAt([{t:0,damage:10,segment:1},{t:10,damage:30,segment:2}],6,
 assert.equal(e('lineAt([{t:0,damage:null,segment:1},{t:10,damage:30,segment:1}],4,"damage",{})'),null);
 assert.equal(e('lineAt([{t:0,fatigue_state:0,segment:1},{t:10,fatigue_state:4,segment:1}],6,"fatigue_state",{}).value'),4);
 assert.equal(e('lineAt([],5,"damage",{})'),null);
-operations.length=0;e('drawMovement({history:[{t:0,segment:1,position_segment:1,xyz:[0,0,0]},{t:1,segment:1,position_segment:1,xyz:[1,0,1]}]})');assert.deepEqual(operations.filter(o=>o.method==='arc'),[]);assert.equal(n('movement-scrubber'),null);assert.ok(n('movement-zoom-in'));assert.ok(n('movement-position-0'));assert.ok(operations.some(o=>o.method==='fillRect'));assert.ok(operations.some(o=>o.method==='lineTo'));
+operations.length=0;e('drawMovement({history:[{t:0,segment:1,position_segment:1,xyz:[0,0,0]},{t:1,segment:1,position_segment:1,xyz:[1,0,1]}]})');assert.deepEqual(operations.filter(o=>o.method==='arc'),[]);assert.equal(n('movement-scrubber'),null);assert.ok(n('movement-zoom-in'));assert.ok(n('movement-position-0'));assert.ok(operations.some(o=>o.method==='fillRect'));
 
 e('D.end_s=10');
 assert.equal(e('graphNumber(47.8,"damage")'),'48');assert.equal(e('graphNumber(47.28,"elevation")'),'47.28');
@@ -309,6 +315,27 @@ assert.equal(n('graph-0').onwheel,null);assert.equal(n('graph-0').onmousedown,nu
 e("plot('graph-0',[{t:0,xyz:[0,47.28,0],segment:1}],['elevation'],['#fff'],{id:'hover-test'})");n('graph-0').onmousemove({clientX:400,clientY:100});assert.match(n('graph-0-tooltip').innerHTML,/Elevation: <b>47.28/);
 e("plot('graph-0',[{t:0,damage:null,models:2,segment:1},{t:10,damage:30,models:2,segment:2}],['damage','models'],['#fff','#eee'],{id:'hover-test'})");n('graph-0').onmousemove({clientX:400,clientY:100});assert.match(n('graph-0-tooltip').innerHTML,/No recorded value/);
 n('graph-0').onmouseleave();assert.equal(n('graph-0-tooltip').hidden,true);
+// Map initials, gentle zoom, crowding and sampled routing/shattered states.
+assert.equal(e('movementInitials("The Claw of Nagash (Mortis Engine)")'),'CN');
+assert.equal(e('movementInitials("Skeleton Warriors (Spears)")'),'SW');
+assert.equal(e('movementInitials("The Knights (Mounted (Armoured)) of Chaos")'),'KC');
+assert.equal(e('movementInitials("The Warriors of Chaos #2")'),'WC');
+assert.equal(e('movementDotSize(1)'),14);assert.equal(e('movementDotSize(8)'),26);assert.ok(e('movementDotSize(2)')<28);
+e('globalThis.dotA={x:40,y:40,initials:"BK"};globalThis.dotB={x:48,y:40,initials:"SW"}');
+assert.equal(e('movementLabelVisible(dotA,[dotA],14,100,100,9)'),true);
+assert.equal(e('movementLabelVisible(dotA,[dotA,dotB],14,100,100,9)'),true);
+assert.equal(e('movementLabelVisible(dotA,[dotA],14,100,100,20)'),true);
+e('globalThis.routeUnit={side:"Enemy",last_s:10,last:{shattered:true},activity_timeline:{samples:[{t:0,values:{routing:false,shattered:false}},{t:5,values:{routing:true,shattered:false}},{t:10,values:{routing:false,shattered:true}}]}}');
+assert.equal(e('movementDotAppearance(routeUnit,0).status'),'normal');
+assert.equal(e('movementDotAppearance(routeUnit,5).status'),'routing');
+assert.equal(e('movementDotAppearance(routeUnit,10).status'),'shattered');
+assert.equal(e('movementDotAppearance(routeUnit,10).color'),'#bb8c91');
+assert.equal(e('movementDotAppearance(routeUnit,5).color'),'#ffe1df');
+assert.equal(e('movementDotAppearance({...routeUnit,side:"Allied"},5).color'),'#d9f6e3');
+assert.equal(e('movementDotAppearance({...routeUnit,side:"Allied"},10).color'),'#91b8a0');
+assert.ok(!script.includes('--movement-side-color'));
+assert.ok(n('movement-map-frame'));
+assert.match(html,/resize:none/);assert.ok(n('movement-resize-handle'));
 // Full-resolution spatial deltas, continuity and mixed-side comparisons.
 assert.equal(e('layout.slice(0,3).map(p=>p.id).join(",")'),'view-8,view-7,view-3');
 assert.equal(e('MOVEMENT_MEASURES.length'),6);
@@ -318,23 +345,84 @@ assert.equal(e('spatialCells([spatialFixture[0]],testXY,"damage").cells.get("2,0
 assert.equal(e('spatialCells([spatialFixture[0]],testXY,"occupancy").cells.get("0,0").amount'),4);
 for(const [metric,value] of [['gold_damage',4],['kills',2],['damage_taken_estimate',10],['healing_received_estimate',3]])assert.equal(e('Array.from(spatialCells([spatialFixture[0]],testXY,'+JSON.stringify(metric)+').cells.values()).reduce((n,c)=>n+c.amount,0)'),value);
 assert.equal(e('spatialCells([{history:[{t:0,xyz:[]},{t:4,xyz:[0,0,0]}]}],testXY).comparable'),0);
-assert.equal(e('setMovementComparison(spatialFixture[0],0,"spatial-0")'),false);
-assert.equal(e('setMovementComparison(spatialFixture[0],0,"invalid")'),false);
-assert.equal(e('setMovementComparison(spatialFixture[0],0,"spatial-1")'),true);
-assert.equal(e('setMovementComparison(spatialFixture[0],1,"spatial-1")'),false);
-assert.equal(e('setMovementComparison(spatialFixture[0],1,"spatial-2")'),true);
-assert.equal(e('setMovementComparison(spatialFixture[0],2,"spatial-3")'),true);
-assert.equal(e('setMovementComparison(spatialFixture[0],3,"spatial-4")'),false);
-assert.equal(e('movementUnits(spatialFixture[0]).length'),4);
+e('D.end_s=20;selected=spatialFixture[0].id;view="unit";drawMovement(spatialFixture[0])');
+assert.equal(e('movementUnits(spatialFixture[0]).length'),5);
+assert.equal(e('movementSquareUnits(spatialFixture,"All").length'),5);
+assert.equal(e('movementSquareUnits(spatialFixture,"Allied").length'),3);
+assert.equal(e('movementSquareUnits(spatialFixture,"Enemy").length'),2);
+for(const [metric,wording] of [['damage','10 damage dealt in this square'],['gold_damage','10 gold damage dealt in this square'],['kills','10 models killed in this square'],['damage_taken_estimate','10 damage taken in this square'],['healing_received_estimate','10 HP healed in this square']])assert.equal(e('movementSquareText('+JSON.stringify(metric)+',10)'),wording);
+n('movement-square-track').onchange({target:{value:'Enemy'}});assert.equal(e('movementState().track'),'Enemy');assert.equal(e('movementUnits(spatialFixture[0]).length'),5);
+e('movementState().locked=true;movementState().time=4');
+n('movement-square-track').onchange({target:{value:'Selected'}});
+assert.equal(e('movementState().track'),'Selected');assert.equal(e('movementSquareUnits(spatialFixture,"Selected")[0].id'),'spatial-0');
+assert.equal(e('Array.from(spatialCells(movementSquareUnits(spatialFixture,"Selected"),testXY,"damage").cells.values()).reduce((sum,cell)=>sum+cell.amount,0)'),20);
+e('selected=spatialFixture[1].id;drawMovement(spatialFixture[1])');
+assert.equal(e('movementSquareUnits(spatialFixture,"Selected").length'),1);assert.equal(e('movementSquareUnits(spatialFixture,"Selected")[0].id'),'spatial-1');
+assert.equal(e('movementSquareUnits(spatialFixture,"Selected","missing").length'),0);
+assert.equal(e('movementState().track'),'Selected');assert.equal(e('movementUnits(spatialFixture[1]).length'),5);
+assert.equal((n('movement-positions').innerHTML.match(/data-movement-unit=/g)||[]).length,5);
+assert.equal(e('movementState().time'),4);assert.equal(e('movementState().locked'),true);
+assert.match(e('movementMarkup()'),/Squares tracks stats of:/);
+assert.match(e('movementMarkup()'),/<option value="All">all<\/option><option value="Allied">ally<\/option><option value="Enemy">enemy<\/option><option value="Selected">selected unit<\/option>/);
+e('selected=spatialFixture[0].id;movementState().locked=false');
+n('movement-square-track').onchange({target:{value:'All'}});
+assert.equal(n('movement-readout'),null);
+assert.ok(!script.includes('Counter increases are assigned where first recorded.'));
+assert.ok(!script.includes('both sides combined over the recorded battle'));
+
+assert.equal(e('movementState().cellSize'),100);
+e('movementState().locked=true;movementState().time=4');
+for(const [step,size] of [[0,50],[1,100],[2,200]]){n('movement-cell-size').oninput({target:{value:String(step)}});assert.equal(e('movementState().cellSize'),size);assert.equal(e('movementState().time'),4);assert.equal(e('movementState().locked'),true)}
+e('movementState().locked=false');
+assert.equal(e('Array.from(spatialCells([spatialFixture[0]],testXY,"damage",50).cells.values()).reduce((n,c)=>n+c.amount,0)'),20);
+assert.equal(e('Array.from(spatialCells([spatialFixture[0]],testXY,"damage",200).cells.values()).reduce((n,c)=>n+c.amount,0)'),20);
+
 operations.length=0;e('drawMovement(spatialFixture[0])');
-assert.match(n('movement-comparisons').innerHTML,/Enemy/);
-assert.ok(operations.some(o=>o.method==='set:fillStyle'&&String(o.args[0]).startsWith('rgba(75,220,125,')));
-assert.ok(operations.some(o=>o.method==='set:fillStyle'&&String(o.args[0]).startsWith('rgba(240,80,80,')));
-e('movementState(spatialFixture[0]).others=["spatial-2","spatial-4",""]');operations.length=0;e('drawMovement(spatialFixture[0])');
-assert.ok(operations.some(o=>o.method==='set:fillStyle'&&String(o.args[0]).startsWith('rgba(225,233,238,')));
-assert.ok(!operations.some(o=>o.method==='arc'));
+assert.ok(operations.some(o=>o.method==='set:fillStyle'&&String(o.args[0]).startsWith('rgba(255,255,255,')));
+assert.ok(!operations.some(o=>o.method==='set:fillStyle'&&/rgba\((75,220,125|240,80,80)/.test(String(o.args[0]))));
+e('publishTime(4)');assert.equal(n('movement')._sharedTime,4);
+assert.equal(n('movement-time-cursor').hidden,false);const lockedMapCursorLeft=n('movement-time-cursor').style.left;
+n('movement-time').onclick();assert.equal(e('movementState().locked'),true);
+e('publishTime(8)');assert.equal(n('movement')._sharedTime,4);assert.equal(n('effects')._sharedTime,8);assert.equal(n('movement-time-cursor').style.left,lockedMapCursorLeft);
+n('movement-time').onmousemove({clientX:700,clientY:16});assert.equal(n('movement')._sharedTime,4);
+n('movement-time').onclick();assert.equal(e('movementState().locked'),false);
+e('publishTime(16)');assert.equal(n('movement')._sharedTime,16);assert.notEqual(n('movement-time-cursor').style.left,lockedMapCursorLeft);assert.equal(n('movement-time-cursor').hidden,false);
+assert.match(n('movement-positions').innerHTML,/title="Spatial 0"/);
 assert.equal(e('JSON.stringify(spatialFixture)===spatialBefore'),true);
 e('D.units=savedUnits;D.end_s=20;selectUnit(D.units[0].id,true)');
+// Unit bar collapse is reversible, retained across unit changes, and scoped to Unit view.
+e('showView("unit")');n('unit-header-minimize').onclick();
+assert.equal(n('unit-header').hidden,true);assert.equal(n('report-header').hidden,true);assert.equal(n('unit-header-restore').hidden,false);
+e('selectUnit(D.units[1].id)');assert.equal(n('unit-header').hidden,true);
+e('showView("main")');assert.equal(n('unit-header-restore').hidden,true);assert.equal(n('report-header').hidden,false);
+e('showView("unit")');assert.equal(n('unit-header').hidden,true);
+n('unit-header-restore').onclick();assert.equal(n('unit-header').hidden,false);assert.equal(n('report-header').hidden,false);assert.equal(n('unit-header-restore').hidden,true);
+assert.match(e('movementMarkup()'), /id="movement-heading"[\s\S]*?<\/h3><div class="movement-grid-size">[\s\S]*?<div class="movement-zoom">/);
+e('selectUnit(D.units[0].id)');
+// Height resizing keeps full width and preserves the selected sample/lock.
+e('globalThis.resizeFrame=$("movement-map-frame");globalThis.savedMapRect=resizeFrame.getBoundingClientRect;resizeFrame.isConnected=true;resizeFrame.parentElement={clientWidth:900};movementState().locked=true;movementState().time=4;resizeFrame.style.width="1200px";resizeFrame.getBoundingClientRect=()=>({width:1200,height:600});movementResize.observer.fire()');
+assert.equal(n('movement-map-frame').style.width,'100%');assert.equal(e('movementState().frameWidth'),undefined);assert.equal(e('movementState().frameHeight'),600);assert.equal(e('movementState().time'),4);assert.equal(e('movementState().locked'),true);
+e('resizeFrame.parentElement.clientWidth=700;drawMovement(D.units[0])');assert.equal(e('movementState().frameWidth'),undefined);assert.equal(n('movement-map-frame').style.width,'100%');
+e('resizeFrame.getBoundingClientRect=()=>({width:0,height:0});movementResize.observer.fire()');
+assert.equal(e('movementState().frameHeight'),600);
+e('resizeFrame.getBoundingClientRect=savedMapRect;delete resizeFrame.parentElement;delete movementState().frameWidth;delete movementState().frameHeight;movementState().locked=false');
+// Bottom-edge pointer capture controls height only; cancel/release stops resizing.
+e('globalThis.resizeHandle=$("movement-resize-handle");movementState().locked=true;movementState().time=4;movementState().zoom=2;drawMovement(D.units[0])');
+const resizeHandle=n('movement-resize-handle');
+resizeHandle.onpointerdown({button:2,pointerId:9,clientY:100});resizeHandle.onpointermove({pointerId:9,clientY:300});assert.equal(e('movementState().frameHeight'),undefined);
+resizeHandle.onpointerdown({button:0,pointerId:9,clientY:100});resizeHandle.onpointermove({pointerId:8,clientY:900});assert.equal(e('movementState().frameHeight'),undefined);
+resizeHandle.onpointermove({pointerId:9,clientY:300});assert.equal(e('movementState().frameHeight'),560);assert.equal(n('movement-map-frame').style.width,'100%');assert.equal(n('movement-map-frame').style.height,'560px');assert.equal(resizeHandle['aria-valuenow'],'560');
+assert.equal(e('movementState().time'),4);assert.equal(e('movementState().locked'),true);assert.equal(e('movementState().zoom'),2);
+resizeHandle.onpointerup({pointerId:9});resizeHandle.onpointermove({pointerId:9,clientY:500});assert.equal(e('movementState().frameHeight'),560);
+resizeHandle.onpointerdown({button:0,pointerId:10,clientY:300});resizeHandle.onpointermove({pointerId:10,clientY:-500});assert.equal(e('movementState().frameHeight'),240);
+resizeHandle.onpointercancel({pointerId:10});resizeHandle.onpointermove({pointerId:10,clientY:1000});assert.equal(e('movementState().frameHeight'),240);
+resizeHandle.onkeydown({key:'ArrowDown'});assert.equal(e('movementState().frameHeight'),280);
+resizeHandle.onkeydown({key:'ArrowUp'});assert.equal(e('movementState().frameHeight'),240);
+e('delete movementState().frameHeight;movementState().zoom=1;movementState().locked=false');
+// Clicking an opposing-side map dot changes scope/unit, preserving map lock.
+e('globalThis.oldSelected=selected;globalThis.oldSide=side;globalThis.mapEnemy=D.units.find(v=>v.side==="Enemy");movementState().locked=true');
+assert.equal(e('selectMovementUnit(mapEnemy.id)'),true);assert.equal(e('selected'),e('mapEnemy.id'));assert.equal(e('side'),'Enemy');assert.equal(e('movementState().locked'),true);
+e('side=oldSide;$("side").value=side;selectUnit(oldSelected);movementState().locked=false');
 // One hover time reaches every chart and owned popout; nearest actual sample is explicit.
 e('publishTime(8)');
 for(const id of ['effects','activities','movement','movement-time','winds','graph-0','graph-1','graph-2','graph-3'])assert.equal(n(id)._sharedTime,8,id);
@@ -424,7 +512,7 @@ assert.doesNotMatch(script,/Number of landings|Observed rallies \/ landings/);
 e('selectUnit(D.units[0].id,true);graphMetrics[0]="damage";renderPanels();D.end_s=20');
 assert.match(n('unit-panels').innerHTML,/<h3>Damage dealt<\/h3>/);
 assert.equal(e('metricTitle("healing_cap_remaining")'),'Max healing cap');
-assert.match(n('movement-comparisons').innerHTML,/Compare unit 2/);assert.match(n('movement-comparisons').innerHTML,/Compare unit 4/);
+assert.equal(n('movement-comparisons'),null);assert.match(n('movement-units').textContent,/unit dots/);
 assert.doesNotMatch(n('unit-panels').innerHTML,/Movement and \(/);
 assert.ok(markup.indexOf('id="show-graph-tooltips"')<markup.indexOf('id="unit-value"'));
 assert.ok(markup.indexOf('id="hide-graph-explanations"')<markup.indexOf('id="unit-value"'));

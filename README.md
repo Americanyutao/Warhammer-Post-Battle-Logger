@@ -18,7 +18,7 @@
 
 # WARHAMMER III Full Battle Details
 
-An external battle logger for **Total War: WARHAMMER III**. It runs quietly in the Windows notification tray and creates interactive HTML reports after your battles.
+An external battle logger for **Total War: WARHAMMER III**. It records quietly in the Windows notification tray and displays interactive battle reports inside the app.
 
 Compare unit performance, explore damage breakdowns, and inspect graphs of health, leadership, fatigue, movement and Winds of Magic.
 
@@ -36,24 +36,33 @@ Compare unit performance, explore damage breakdowns, and inspect graphs of healt
 
 **Do not download WH3BattleLogger-update.json.gz manually.** The app reads this small update index automatically to find and download future updates.
 
-**No application window will appear.** Look for the **LOG** icon in the Windows notification tray, including the hidden icons menu next to the clock.
+The main menu lists encrypted **.wh3log** recordings. **Rename Battle**, to the right of Open report, changes a closed battle's filename and report title while retaining saved values and corrections. New recordings use date/time names, with `(1)`, `(2)` and so on for duplicates. Older random filename suffixes are removed on executable startup. Double-click a battle to open it in a separate app window with the same tables, charts, timelines and graph popouts. No HTML is generated automatically. Images and skill information come from the bundled app files.
+
+The report window opens first, then loads battle data followed by shared icons and skill details. Its temporary viewer cache is removed when the window closes; stale caches from a crash are cleaned on the next launch. Graph choices and manually entered unit values are saved separately. Interrupted recordings recover authenticated saved samples when opened, with missing data marked explicitly. **Export HTML** saves a standalone report in **captures/shareables** beside the executable, using the recording's filename with `.html` instead of `.wh3log`, and opens that folder in File Explorer when finished. Re-exporting refreshes the matching HTML.
+
+A separate **What's new in vX.X.X** window appears when launching the executable, showing a short summary of that installed version's GitHub release notes and a link to the full notes. Previously fetched notes remain available offline. Close the main menu with **X** to keep logging in the Windows notification tray. Double-click the tray icon to reopen the menu; reopening does not show the welcome window again.
 
 Right-click the tray icon:
 
-- **Open reports** opens the folder containing your recordings and reports. Open an **HTML** report in your browser.
+- **Main menu / reports** opens the report menu.
+- **Restart app** saves the current recording and restarts the logger.
 - **Check for updates** checks GitHub for a newer stable version and offers to download and install it. Available in v1.1.0 and later.
 - **About** shows the installed version and opens its GitHub release notes.
-- **Exit** finishes saving the current recording and closes the logger.
+- **Exit** finishes saving the current recording and closes the logger and its viewer windows.
 
-The packaged application does not require Python. It requires **64-bit Windows** and a supported build of **Total War: WARHAMMER III**. Game updates may require an updated logger.
+Starting after deployment asks whether to continue logging the battle; choosing **No** discards it. Choosing **Yes** marks its report with a warning about incomplete or incorrect values. Game exits or 30 seconds without readable unit data automatically seal the recording. Pausing while unit data remains readable keeps recording. After a computer crash, relaunch the app and open the recording to recover saved samples; the final samples may be missing, and missing results stay unknown.
+
+The packaged application does not require Python. It requires **64-bit Windows**, **Microsoft Edge WebView2 Runtime** for the embedded viewer, and a supported build of **Total War: WARHAMMER III**. Game updates may require an updated logger.
+
+Report images use battle-bar unit cards, including character cards stored under `portraits/units`. Porthole and minspec-porthole images are excluded. Recorded character portraits select the exact appearance; older captures without that information may use a labeled default appearance.
 
 ## Updating (v1.1.0 and later)
 
-Right-click the **LOG** tray icon and choose **Check for updates**. The logger compares its installed version with the latest stable GitHub Release. It checks only when you choose this option; it does not automatically check or install updates.
+The executable checks for a newer stable GitHub release in the background at each launch. When one is available, a **New version available — Download now?** dialog appears after other open dialogs. **Yes** downloads it; **No** keeps the current version running. Offline or up-to-date launches show no update alert. You can also choose **Check for updates** from the main menu or tray. Installation still requires confirmation.
 
 From v1.1.2 onward, the logger checks which application files changed and downloads only those portions of the release ZIP. The confirmation shows the actual download size. In v2.0.0, an Explorer-style progress window shows the percentage, transferred/installed MB, speed, estimated time remaining and current file. Pause/resume and Cancel are available during transfer and installation; cancelling installation restores and restarts the previous version. Recording continues during the download. The logger verifies each downloaded file and tests the new application, then asks before saving, closing, installing and restarting. **Install updates between battles** so your recording is not interrupted.
 
-Your **captures** folder, existing reports and **logger.key** stay in place. Successful updates keep one installed copy: temporary replacement files are removed, and backups created by older logger versions are cleaned up. Temporary copies of changed files are used only during installation to recover from a failed copy.
+Your **.wh3log recordings** and **logger.key** stay in place. Manual update checks and completed updates remove old HTML exports from captures. Successful updates keep one installed copy: temporary replacement files are removed, and backups created by older logger versions are cleaned up. Temporary copies of changed files are used only during installation to recover from a failed copy.
 
 **Coming from v1.1.0 or v1.1.1:** one full download is needed to obtain the new updater. Smaller downloads and download progress are available for subsequent updates. Large downloads are still possible when many files, game images or runtime dependencies change.
 
@@ -84,10 +93,10 @@ New captures use the battle countdown, with deployment providing the initial rea
 
 Timeline positions use the in-game clock: at 4× speed, readings taken one real second apart appear about four battle seconds apart. Paused readings share one timestamp. Buff/debuff bars assume an effect stayed active between consecutive detections. An absent or unreadable tick, or a known recording gap, breaks the bar. Brief effects between readings can still be missed. Internal effects hidden from the game's UI may not appear. Older captures do not contain this new effect data.
 
-Reports and encrypted recordings are saved in the **captures** folder beside the application:
+Encrypted recordings are saved in **captures**, and HTML exports in **captures/shareables**, beside the application:
 
-- **.html:** a standalone report you can open or share without running the logger.
-- **.wh3log:** an encrypted battle recording.
+- **.html:** an optional standalone export in **captures/shareables**, with the same battle name as its recording. **Check for updates deletes legacy HTML exports from captures**; new recordings do not generate HTML automatically.
+- **.wh3log:** a losslessly compressed, encrypted battle recording. Zstandard compression runs before encryption with a bounded history and per-record authentication. Every saved sample is retained; approved floating-point fields use the precision policy described below. Startup optimizes older complete release recordings in the background, verifies the expected transformed records and replaces each file atomically. In-use, incomplete or unreadable files stay unchanged. Both old and new formats remain readable.
 - **logger.key:** the private key needed to read your encrypted recordings. Keep it with recordings you want to reopen.
 
 ## Interpreting the statistics
@@ -169,3 +178,17 @@ Publish as the latest stable release; drafts and prereleases are not offered. Th
 ## Feedback
 
 Report bugs through [Discord](https://discord.gg/v27y7AW7Kz) @Americanyutao
+
+Release recordings use field-specific decimal precision: generally four decimals, three for the millisecond model clock, exact integer counters, and full precision for raw regeneration, effect intensity/damage scale and legacy healing-ceiling calculation inputs. CPU, memory, read-time and other debug performance data are excluded from release logs and reports. Debug mode retains its diagnostics.
+
+The movement/occupancy map includes all units, combines both sides into white intensity shading, uses green dots for allies and red dots for enemies, and names units when their dots are hovered. Click its time strip or map to lock the selected sample; click again to unlock. This lock does not freeze the other charts. Only recorded positions are shown.
+
+Movement dots grow gently with map zoom. Initials omit parenthesized text and articles/connectors and remain visible even where dots overlap. Click a dot to select its unit. Routing dots use white-green allied or white-red enemy fills; shattered dots use grey-green allied or grey-red enemy fills, with neutral borders. These states follow the chosen recorded sample.
+
+The square-size slider beside the Movement and measure selector selects 50, 100 or 200 game units per side (default 100), independently of map zoom. Changing it preserves the selected sample and unit dots.
+
+Drag the handle along the movement map’s bottom edge to adjust its height. The map stays full width without a horizontal scrollbar and preserves zoom and the locked sample. The focused handle also supports the up/down arrow keys.
+
+In Unit view, use the minus at the frozen unit bar’s bottom-right to hide both the unit bar and the title/navigation header. A small + Show header button restores both.
+
+Squares tracks stats of (all / ally / enemy / selected unit) filters heatmap square totals independently of the unit dots. Selected unit follows the unit currently viewed, including dot-click selection. Square hover descriptions name the chosen measure directly. The movement time strip has a continuous track and gold sample marker that stays fixed while the map is locked.

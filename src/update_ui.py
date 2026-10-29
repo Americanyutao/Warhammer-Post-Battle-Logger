@@ -10,6 +10,7 @@ import webbrowser
 from version import VERSION
 from icons import load_tray_icon
 from settings import ICONS_TIP
+from main_menu import silent_message
 
 RELEASE_NOTES='https://github.com/Americanyutao/Warhammer-Post-Battle-Logger/releases'
 
@@ -112,7 +113,6 @@ class ProgressWindow:
         user.DestroyWindow.argtypes=[w.HWND]
         user.DestroyIcon.argtypes=[w.HICON]
         user.SetWindowTextW.argtypes=[w.HWND,w.LPCWSTR]
-        user.MessageBoxW.argtypes=[w.HWND,w.LPCWSTR,w.LPCWSTR,w.UINT]
         user.EnableWindow.argtypes=[w.HWND,w.BOOL]
         user.AdjustWindowRect.argtypes=[ctypes.POINTER(w.RECT),w.DWORD,w.BOOL]
         user.GetMessageW.argtypes=[ctypes.POINTER(w.MSG),w.HWND,w.UINT,w.UINT]
@@ -175,7 +175,7 @@ class ProgressWindow:
             if self.settings is not None and msg==0x111 and (wp&0xffff)==6:
                 try:self.settings.save(icons=user.SendMessageW(icons_checkbox,0xf0,0,0)==1)
                 except (OSError,ValueError) as error:
-                    user.MessageBoxW(hwnd,str(error),'Could not save settings',0x10);return 0
+                    silent_message(str(error),'Could not save settings');return 0
                 user.DestroyWindow(hwnd);return 0
             if msg==0x2b:
                 draw=ctypes.cast(lp,ctypes.POINTER(DrawItem)).contents
@@ -249,7 +249,7 @@ class ProgressWindow:
                 icons_checkbox=child('BUTTON','Icons',44,52,450,28,7,extra=3|0x10000)
                 self.icons_checkbox=icons_checkbox
                 user.SendMessageW(icons_checkbox,0xf1,int(self.settings.report_options()['icons']),0)
-                child('STATIC','Applies to newly generated reports.',24,140,490,22)
+                child('STATIC','Applies to newly opened views and HTML exports.',24,140,490,22)
                 child('BUTTON','Save',286,176,110,32,6,extra=1|0x10000)
                 child('BUTTON','Cancel',406,176,110,32,1,extra=0x10000)
                 class ToolInfo(ctypes.Structure):

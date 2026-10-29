@@ -45,7 +45,9 @@ jobs:
       - name: Run offline tests
         run: python -B tools/test_ci.py
       - name: Check report JavaScript syntax
-        run: node --check src/report_view.js
+        run: |
+          node --check src/report_view.js
+          node --check src/viewer_boot.js
       - name: Build tray application
         run: python -B tools/build_release.py
       - name: Check packaged application without a desktop or game
