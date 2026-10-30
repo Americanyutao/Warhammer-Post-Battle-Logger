@@ -53,3 +53,8 @@ report-corrections.json
 !/requirements.txt
 !/requirements-build.txt
 !/Run-Battle-Logger-Release.cmd
+
+# README screenshots are public documentation; other local docs stay excluded.
+!/docs/
+/docs/*
+!/docs/screenshots/
