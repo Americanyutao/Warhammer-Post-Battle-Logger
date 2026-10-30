@@ -55,6 +55,10 @@ Choose allied, enemy or all units in reports. Select a unit for detailed charts,
 
 ## Screenshots
 
+Open and rename battles, build shareable HTML reports, and launch the live meter from the main menu.
+
+![Battle reports main menu](docs/screenshots/battle-reports-menu.png)
+
 Follow damage dealt and remaining healing budgets in the live meter.
 
 ![Live damage meter with allied and enemy units](docs/screenshots/live-damage-meter.gif)
