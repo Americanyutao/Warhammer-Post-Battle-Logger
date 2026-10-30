@@ -55,6 +55,14 @@ Choose allied, enemy or all units in reports. Select a unit for detailed charts,
 
 ## Screenshots
 
+Follow damage dealt and remaining healing budgets in the live meter.
+
+![Live damage meter with allied and enemy units](docs/screenshots/live-damage-meter.gif)
+
+Track unit movement and see where battlefield statistics were generated.
+
+![Animated unit movement and occupancy map](docs/screenshots/movement-occupancy-map.gif)
+
 ![Animated unit statline and buff/debuff timeline](docs/screenshots/statline-buffs-timeline.gif)
 
 Compare unit performance in the battle overview, including damage, gold damage, damage taken, status, HP and models.
