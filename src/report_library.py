@@ -3,9 +3,6 @@ from pathlib import Path
 import threading
 import json
 import os
-import subprocess
-import sys
-from paths import FROZEN
 from explorer import open_folder
 from battle_names import validate_name,unique_capture_path,LEGACY_NAME
 from viewer_preferences import ViewerPreferences
@@ -35,20 +32,10 @@ class ReportLibrary:
             source=Path(source)
             directory=self.root/'captures/shareables';directory.mkdir(parents=True,exist_ok=True)
             output=directory/(source.stem+'.html')
-            self.status='Exporting HTML…'
-            if FROZEN:
-                # Report assembly can hold Python's interpreter lock while encoding
-                # large payloads. Keep it outside the recorder/menu process.
-                result=subprocess.run([sys.executable,'--export-log',str(source.resolve()),'--data-dir',str(self.root.resolve())],
-                    stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=0x08000000)
-                if result.returncode:raise OSError('The export could not be completed. Details: logs/export-last-error.txt')
-                if not output.is_file():raise OSError('The export did not produce a report.')
-            else:
-                convert(source,load_key(self.root/'captures/logger.key'),output,recover_tail=True,report_options=load_report_options(self.root))
-            self.status='Exported HTML: '+output.name
-            try:open_folder(str(directory.resolve()))
-            except OSError as error:self.status+=' · Could not open Explorer: '+str(error)
-        except Exception as error:self.status='Could not export HTML: '+(str(error) or type(error).__name__)
+            self.status='Building HTML…'
+            convert(source,load_key(self.root/'captures/logger.key'),output,recover_tail=True,report_options=load_report_options(self.root))
+            self.status='Built HTML: '+output.name
+        except Exception as error:self.status='Could not build HTML: '+(str(error) or type(error).__name__)
         finally:self.lock.release()
 
     def rename(self,source,name,busy=()):

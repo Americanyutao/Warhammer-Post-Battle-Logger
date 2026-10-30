@@ -9,9 +9,25 @@ from urllib.parse import quote
 from paths import resource_path
 
 CARD_FOLDERS=('ui/portraits/units/','ui/units/icons/')
+DAEMON_PRINCE_PARTS='ui/portraits/units/dae_prince/'
+GENERIC_DAEMON_PRINCE='ui/portraits/units/no_culture/dae_prince_0.png'
+
+def generic_prince_key(key):
+    return isinstance(key,str) and (key.casefold().startswith('wh3_main_dae_cha_daemon_prince_') or key.casefold() in (
+        'wh3_pro10_mom_qb_cha_daemon_prince','wh3_dlc20_chs_cha_daemon_prince'))
+
+def canonical_card(path):
+    normalized=path.replace('\\','/').casefold().replace('/portholes/','/units/')
+    return GENERIC_DAEMON_PRINCE if normalized.startswith(DAEMON_PRINCE_PARTS) else path
+
+def is_unused_portrait_mask(path):
+    """Audited companion textures; our reports display the main PNG directly."""
+    return path.casefold().startswith('ui/portraits/units/no_culture/') and bool(re.search(r'_mask[0-9]*\.png$',path,re.I))
 
 def required_images(index):
-    return set(index['stats'].values())|{p for key in ('units','units_by_key') for p in index.get(key,{}).values() if p.startswith(CARD_FOLDERS)}|{p for p in index['provenance'] if p.startswith(CARD_FOLDERS)}
+    explicit=set(index['stats'].values())|{canonical_card(p) for key in ('units','units_by_key') for p in index.get(key,{}).values() if p.startswith(CARD_FOLDERS)}
+    if GENERIC_DAEMON_PRINCE in index['provenance']:explicit.add(GENERIC_DAEMON_PRINCE)
+    return explicit|{p for p in index['provenance'] if p.startswith(CARD_FOLDERS) and not p.startswith(DAEMON_PRINCE_PARTS) and not is_unused_portrait_mask(p)}
 
 
 def name_key(text):
@@ -92,7 +108,11 @@ def assets_for(units,icons=True,*,embed_images=True,image_prefix='assets/game/')
         name=u['name'];uid=u['id'];key=captured(u,'unit_key');keys=candidates[uid]
         image=None;note=index.get('unit_notes',{}).get(name,'')
         portrait=captured(u,'portrait_path')
-        if portrait:
+        use_generic=generic_prince_key(key) or (not key and bool(keys) and all(generic_prince_key(k) for k in keys)) or (isinstance(portrait,str) and canonical_card(portrait)==GENERIC_DAEMON_PRINCE)
+        if use_generic:
+            image=paths.get(GENERIC_DAEMON_PRINCE)
+            if image:note=''
+        if portrait and not image:
             path=portrait.replace('\\','/').lower().replace('/portholes/','/units/')
             image=paths.get(path) if path.startswith(CARD_FOLDERS) else None
             if image:note=''
@@ -113,6 +133,7 @@ def assets_for(units,icons=True,*,embed_images=True,image_prefix='assets/game/')
                         if len(images)==1:
                             image=images.pop();keys=subset
                             note='Provisional card selected from matching unit names and army roster.'
+        if image:image=canonical_card(image)
         if image and not image.startswith(CARD_FOLDERS):image=None
         if image:
             by_id[uid]=image;cards.setdefault(name,image)

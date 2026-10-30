@@ -15,8 +15,9 @@ from native_reader import LoggerReader
 from recorder import Recorder
 from resources import ResourceMonitor, pacific
 from paths import resource_path
+from live_tracking import LiveRoster
 
-RATES = (1.0, .5, .2)
+RATES = (1.0, .5, 1/3, .25, .2)
 
 
 def latest_put(channel, value):
@@ -32,6 +33,7 @@ class Worker(threading.Thread):
         super().__init__(name='battle-logger-reader', daemon=False)
         self.root, self.channel, self.requested_pid = Path(root), channel, pid
         self.preview = preview
+        self.rate_lock=threading.Lock();self.next_rate=rate
         self.set_rate(rate)
         self.stop_event, self.finish_event = threading.Event(), threading.Event()
         self.memory = self.reader = self.token = self.battle = self.recorder = None
@@ -47,6 +49,9 @@ class Worker(threading.Thread):
         self.late_start_allowed = None
         self.last_unit_data = None
         self.data_timeout = 30.
+        self.events=queue.Queue()
+        self.battle_active=False;self.notified_identity=None;self.battle_generation=0
+        self.live_enabled=False;self.live_roster=LiveRoster();self.live_rows=self.live_roster.rows
 
     def answer_late_start(self, request, accepted):
         self.late_start_answers.put((request, bool(accepted)))
@@ -76,6 +81,7 @@ class Worker(threading.Thread):
         return False
 
     def unit_data_missing(self, now, detail):
+        self.live_roster.missing()
         if not self.recorder: return
         self.battle.break_continuity()
         self.recorder.submit(dict(kind='gap', detail=detail))
@@ -86,8 +92,27 @@ class Worker(threading.Thread):
             self.status='Unit data stopped · saving recording; waiting for next battle'
 
     def set_rate(self, rate):
-        if rate not in RATES: raise ValueError('Refresh rate must be 1, 0.5 or 0.2 samples per second.')
-        self.rate, self.interval = rate, 1 / rate
+        if rate not in RATES:raise ValueError('Choose one sample every 1, 2, 3, 4 or 5 seconds.')
+        with self.rate_lock:
+            self.next_rate=rate
+            if not getattr(self,'battle_active',False) and not getattr(self,'recorder',None):
+                self.rate,self.interval=rate,1/rate
+
+    def observe_battle(self,identity,frame,visibility=None):
+        phase=frame.get('battle_phase')
+        if phase in (0,4,5,6,7) and identity!=self.notified_identity:
+            if self.next_rate!=self.rate:self.set_rate(self.next_rate)
+            self.notified_identity=identity;self.battle_active=True;self.battle_generation+=1
+            self.live_roster=LiveRoster();self.live_rows=self.live_roster.rows
+            self.events.put(dict(kind='battle_detected',generation=self.battle_generation))
+        if phase==8:self.end_battle('results')
+        self.live_roster.observe(frame.get('units',[]),results=phase==8,visibility=visibility)
+
+    def end_battle(self,reason):
+        self.live_roster.end()
+        if self.battle_active:
+            self.battle_active=False
+            self.events.put(dict(kind='battle_ended',reason=reason,generation=self.battle_generation))
 
     def publish(self):
         summary = self.battle.summary() if self.preview and self.battle else None
@@ -95,7 +120,10 @@ class Worker(threading.Thread):
             done=r.done.is_set(), error=r.error, dropped=r.dropped) for r in self.recorders[-10:]]
         latest_put(self.channel, dict(status=self.status, summary=summary, stats=dict(self.stats),
                                       reports=reports, recording=self.recorder is not None,
-                                      late_start_request=self.late_start_request))
+                                      late_start_request=self.late_start_request,
+                                      live=dict(generation=self.battle_generation,active=self.battle_active,
+                                          interval_seconds=self.interval,status=self.status,
+                                          units=list(self.live_rows.values()) if self.live_enabled else [])))
 
     def finish(self, reason):
         if self.recorder:
@@ -108,6 +136,9 @@ class Worker(threading.Thread):
         self.last_frame_t = None
         self.last_unit_data = None
         self.late_start_request = None
+        self.end_battle(reason)
+        self.live_roster.missing()
+        if self.next_rate!=self.rate:self.set_rate(self.next_rate)
 
     def detach(self):
         if self.memory: self.memory.close()
@@ -148,6 +179,7 @@ class Worker(threading.Thread):
                         self.finish('battle_roster_unavailable')
                         self.suppressed = None
                         self.combat_window, self.window_identity = CombatWindow(), None
+                        self.notified_identity=None
                         self.late_start_request = self.late_start_allowed = None
                         self.status = 'Post-battle' if self.battle else 'Waiting for battle'
                     else:
@@ -174,6 +206,7 @@ class Worker(threading.Thread):
                             self.publish()
                             self.stop_event.wait(max(.01,self.interval-(time.monotonic()-started)))
                             continue
+                        self.observe_battle(identity,frame,getattr(self.reader,'live_visibility',None))
                         if not self.allow_start(identity,frame):
                             self.status=('Battle discarded · waiting for next battle' if identity == self.suppressed else
                                 'Battle already in progress · waiting for your choice')
@@ -217,7 +250,7 @@ class Worker(threading.Thread):
                             self.battle.observe(frame)
                             # The recorder coalesces equal timestamps to their latest state.
                             self.recorder.submit(frame)
-                            self.status = 'In battle · recording'
+                            self.status = 'Battle ended · recording results' if frame.get('battle_phase')==8 else 'In battle · recording'
                             if self.recorder.error: self.status = 'Recording error: '+self.recorder.error
                             elif self.recorder.limit_reached: self.status = 'Capture size limit reached; finish and save.'
                         else: self.status = 'Capture finished · waiting for next battle'

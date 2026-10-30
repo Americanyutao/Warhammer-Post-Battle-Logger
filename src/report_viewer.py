@@ -132,7 +132,7 @@ def run_viewer(source,root,key_path=None,check_output=None):
     import webview
     source=Path(source).resolve();root=Path(root).resolve()
     key=load_key(key_path or root/'captures/logger.key')
-    set_app_identity('report')
+    set_app_identity('release')
     result={}
     with ViewerCache(root) as cache:
         cache_path=cache.path

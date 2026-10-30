@@ -81,16 +81,16 @@ class TrayIcon:
         def menu(hwnd):
             popup=user.CreatePopupMenu()
             try:
-                for ident,label in [(1,'Main menu / reports'),(3,'Check for updates'),(5,'Settings'),(4,'About'),(6,'Restart app'),(2,'Exit')]:
+                for ident,label in [(1,'Main menu / reports'),(7,'Show meter'),(3,'Check for updates'),(5,'Settings'),(4,'About'),(6,'Restart app'),(2,'Exit')]:
                     user.AppendMenuW(popup,0,ident,label)
                 point=w.POINT();user.GetCursorPos(ctypes.byref(point));user.SetForegroundWindow(hwnd)
                 choice=user.TrackPopupMenu(popup,0x180,point.x,point.y,0,hwnd,None)
-                if choice: self.actions.put({1:'main_menu',2:'exit',3:'check_updates',4:'about',5:'settings',6:'restart'}[choice])
+                if choice: self.actions.put({1:'main_menu',2:'exit',3:'check_updates',4:'about',5:'settings',6:'restart',7:'show_live_meter'}[choice])
                 user.PostMessageW(hwnd,0,0,0)
             finally: user.DestroyMenu(popup)
         def callback(hwnd,msg,wp,lp):
-            if msg==0x111 and (wp & 0xffff) in (1,2,3,4,5,6):
-                self.actions.put({1:'main_menu',2:'exit',3:'check_updates',4:'about',5:'settings',6:'restart'}[wp & 0xffff]);return 0
+            if msg==0x111 and (wp & 0xffff) in (1,2,3,4,5,6,7):
+                self.actions.put({1:'main_menu',2:'exit',3:'check_updates',4:'about',5:'settings',6:'restart',7:'show_live_meter'}[wp & 0xffff]);return 0
             if msg==callback_message:
                 if lp in (0x205,0x7b): menu(hwnd)
                 if lp==0x203:self.actions.put('main_menu')

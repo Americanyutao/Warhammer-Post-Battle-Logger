@@ -26,25 +26,29 @@ from viewer_manager import ViewerManager
 from viewer_cache import cleanup_stale_caches
 from log_migration import CaptureMaintenance
 from release_notes import cached_notes
+from live_meter import LiveMeterManager
 
 
 def open_reports(root):
-    directory=Path(root)/'captures'
+    directory=Path(root)/'captures/shareables'
     directory.mkdir(parents=True,exist_ok=True)
     os.startfile(str(directory))
     return directory
 
 
 class BackgroundApp:
-    def __init__(self, root=DATA_ROOT, rate=1., pid=None, worker=None, tray=None):
+    def __init__(self, root=DATA_ROOT, rate=None, pid=None, worker=None, tray=None):
         self.root=Path(root)
         self.channel=queue.Queue(maxsize=1)
-        self.worker=worker if worker is not None else Worker(self.root,self.channel,rate,pid,preview=False)
+        self.settings=Settings(self.root);options=self.settings.logger_options()
+        self.worker=worker if worker is not None else Worker(self.root,self.channel,rate if rate is not None else 1/options['logging_interval_seconds'],pid,preview=False)
+        self.worker.live_enabled=False
+        self.live_meter=LiveMeterManager(self.root,self.settings)
+        self.battle_notice=None
         self.tray=tray if tray is not None else TrayIcon()
         self.last_status=None
         self.updates=UpdateChecker(self.tray.actions)
         self.about=None
-        self.settings=Settings(self.root)
         self.settings_window=None
         self.library=ReportLibrary(self.root)
         self.menu=MainMenu(self.library,self.tray.actions,show_welcome=FROZEN,notes=cached_notes(self.root))
@@ -54,6 +58,39 @@ class BackgroundApp:
         self.viewers=ViewerManager(self.root)
         self.exporting=set()
         self.maintenance=CaptureMaintenance(self.root,self.busy_paths,lambda text:setattr(self.library,'status',text))
+
+    def apply_runtime_settings(self):
+        options=self.settings.logger_options()
+        self.worker.set_rate(1/options['logging_interval_seconds'])
+
+    def toggle_live_meter(self):
+        if self.live_meter.is_open:self.live_meter.close()
+        else:
+            self.worker.live_enabled=True
+            try:self.live_meter.open_window()
+            except OSError as error:self.library.status='Could not open live meter: '+str(error)
+        self.worker.live_enabled=self.live_meter.is_open
+        self.menu.set_live_meter_visible(self.live_meter.is_open)
+
+    def show_live_meter(self):
+        self.worker.live_enabled=True
+        try:self.live_meter.open_window()
+        except OSError as error:self.library.status='Could not open live meter: '+str(error)
+        self.worker.live_enabled=self.live_meter.is_open;self.menu.set_live_meter_visible(self.live_meter.is_open)
+
+    def process_battle_events(self):
+        events=getattr(self.worker,'events',None)
+        if not isinstance(events,queue.Queue):return
+        while True:
+            try:event=events.get_nowait()
+            except queue.Empty:return
+            options=self.settings.meter_lifecycle()
+            if event['kind']=='battle_detected' and options['open_meter_on_battle'] and not self.live_meter.is_open:self.show_live_meter()
+            if event['kind']=='battle_ended' and options['close_meter_on_end'] and self.live_meter.is_open:self.toggle_live_meter()
+            if self.battle_notice:self.battle_notice.close()
+            title='Battle detected' if event['kind']=='battle_detected' else 'Battle ended'
+            try:self.battle_notice=MainMenu(None,None,kind='toast',title=title).start()
+            except RuntimeError:self.battle_notice=None
 
     def busy_paths(self):
         with getattr(self.worker,'recorders_lock',nullcontext()):
@@ -100,12 +137,8 @@ class BackgroundApp:
             if not self.tray.ready.wait(5) or not self.tray.available:
                 raise RuntimeError(self.tray.error or 'Windows could not create the notification icon.')
             self.menu.start()
-            if FROZEN:
-                self.library.move_shareables()
-                self.library.clean_legacy_names(self.busy_paths())
             self.worker.start()
             if FROZEN:self.startup_check=StartupReleaseCheck(self.root,self.menu,self.tray.actions).start()
-            self.maintenance.start()
             threading.Thread(target=cleanup_stale_caches,args=(self.root,),daemon=True).start()
             if FROZEN:threading.Thread(target=cleanup_after_start,args=(self.root,),daemon=True).start()
             while True:
@@ -132,15 +165,20 @@ class BackgroundApp:
                 if action=='check_updates':
                     if self.startup_check:self.startup_check.stop()
                     self.menu.cancel_update_offer()
-                    self.maintenance.start(delete_html=True)
                     self.updates.start()
                 if action=='about' and (self.about is None or not self.about.thread.is_alive()):
                     self.about=ProgressWindow(title='About Battle Logger',about=True).start()
                 if action=='settings':
                     if self.settings_window is None or not self.settings_window.thread.is_alive():
-                        self.settings_window=ProgressWindow(title='Battle Logger settings',settings=self.settings).start()
+                        self.settings_window=ProgressWindow(title='Battle Logger settings',settings=self.settings,on_saved=lambda:self.tray.actions.put('settings_changed')).start()
                     else:self.settings_window.focus()
+                if action=='settings_changed':self.apply_runtime_settings()
+                if action=='toggle_live_meter':self.toggle_live_meter()
+                if action=='show_live_meter':self.show_live_meter()
+                self.worker.live_enabled=self.live_meter.is_open
+                self.menu.set_live_meter_visible(self.live_meter.is_open)
                 if action=='install_update':break
+                self.process_battle_events()
                 try:
                     message=self.channel.get_nowait()
                     status=message['status']
@@ -151,6 +189,9 @@ class BackgroundApp:
                         self.last_status=status
                         self.tray.set_tooltip('WH3 Battle Logger · '+status)
                     self.menu.update(status)
+                    if message.get('live') is not None:
+                        try:self.live_meter.update(message['live'])
+                        except OSError as error:self.library.status='Could not open live meter: '+str(error)
                     request=message.get('late_start_request')
                     if request and request!=self.last_prompt:
                         self.last_prompt=request
@@ -177,6 +218,8 @@ class BackgroundApp:
             if self.settings_window:self.settings_window.close()
             self.menu.close()
             self.viewers.close()
+            self.live_meter.close()
+            if self.battle_notice:self.battle_notice.close()
             if self.build_thread:self.build_thread.join()
         if self.updates.pending:
             launch_installer(self.updates.pending,Path(sys.executable).resolve().parent)
@@ -186,7 +229,8 @@ class BackgroundApp:
 def restart_command(root, rate, pid=None):
     command=[sys.executable]
     if not FROZEN:command+=['-B',str(Path(__file__).resolve())]
-    command+=['--data-dir',str(root),'--rate',str(rate)]
+    command+=['--data-dir',str(root)]
+    if rate is not None:command+=['--rate',str(rate)]
     if pid is not None:command+=['--pid',str(pid)]
     return command
 
@@ -253,14 +297,15 @@ def check_install(destination):
 
 def main():
     parser=argparse.ArgumentParser(description='WARHAMMER III background battle logger')
-    parser.add_argument('--rate',type=float,choices=RATES,default=1.)
+    parser.add_argument('--rate',type=float,choices=RATES,default=None)
     parser.add_argument('--pid',type=int)
     parser.add_argument('--data-dir',type=Path,default=DATA_ROOT,help=argparse.SUPPRESS)
     parser.add_argument('--check-install',type=Path,help=argparse.SUPPRESS)
     parser.add_argument('--apply-update',type=Path,help=argparse.SUPPRESS)
     parser.add_argument('--cleanup-update',type=Path,help=argparse.SUPPRESS)
     parser.add_argument('--wait-pid',type=int,help=argparse.SUPPRESS)
-    parser.add_argument('--export-log',type=Path,help=argparse.SUPPRESS)
+    parser.add_argument('--live-meter-url',help=argparse.SUPPRESS)
+    parser.add_argument('--live-meter-check',type=Path,help=argparse.SUPPRESS)
     parser.add_argument('--view-log',type=Path,help=argparse.SUPPRESS)
     parser.add_argument('--view-key',type=Path,help=argparse.SUPPRESS)
     parser.add_argument('--viewer-check',type=Path,help=argparse.SUPPRESS)
@@ -268,15 +313,9 @@ def main():
     handle=None;kernel=None;restart=False
     try:
         if os.name!='nt':raise RuntimeError('The release logger requires Windows.')
-        if args.export_log:
-            from report import convert
-            from logfile import load_key
-            from settings import load_report_options
-            source=args.export_log.resolve();root=args.data_dir.resolve()
-            if source.parent!=(root/'captures') or source.suffix.lower()!='.wh3log':raise ValueError('Invalid export recording path.')
-            output=root/'captures/shareables'/(source.stem+'.html');output.parent.mkdir(parents=True,exist_ok=True)
-            convert(source,load_key(root/'captures/logger.key'),output,recover_tail=True,report_options=load_report_options(root))
-            return
+        if args.live_meter_url:
+            from live_meter import run_live_meter
+            run_live_meter(args.live_meter_url,args.live_meter_check,args.data_dir);return
         if args.view_log:
             from report_viewer import run_viewer
             run_viewer(args.view_log,args.data_dir,args.view_key,args.viewer_check)
@@ -299,9 +338,8 @@ def main():
         restart=BackgroundApp(root=args.data_dir,rate=args.rate,pid=args.pid).run()
     except Exception as error:
         directory=args.data_dir/'logs';directory.mkdir(parents=True,exist_ok=True)
-        error_file='export-last-error.txt' if args.export_log else 'viewer-last-error.txt' if args.view_log else 'last-error.txt'
+        error_file='live-meter-last-error.txt' if args.live_meter_url else 'viewer-last-error.txt' if args.view_log else 'last-error.txt'
         (directory/error_file).write_text(traceback.format_exc(),encoding='utf-8')
-        if args.export_log:raise SystemExit(1)
         if args.viewer_check:
             import json
             args.viewer_check.write_text(json.dumps(dict(success=False,error=traceback.format_exc())),encoding='utf-8')

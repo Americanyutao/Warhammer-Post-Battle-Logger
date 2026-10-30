@@ -367,7 +367,7 @@ class LoggerReader(StatlineReader,InspectorReader):
                     del vision[index]
             except ReadError:
                 del vision[index]
-        units = []
+        units = [];live_visibility={}
         for unit in sample.units:
             values = dict(unit.values)
             opponents = alliances - {unit.alliance}
@@ -376,8 +376,13 @@ class LoggerReader(StatlineReader,InspectorReader):
             if native and opponents and opponents.issubset(vision) and values['hidden_raw'] is not None:
                 visible = values['hidden_raw'] is False and any(native in vision[a][1] for a in opponents)
             values['out_of_opponents_vision'] = not visible if visible is not None else None
+            uid=f'{unit.uid}:{unit.address:x}:{unit.result:x}'
+            local_vision=vision.get(sample.player_alliance)
+            live_visibility[uid]=(True if unit.alliance==sample.player_alliance else
+                (unit.visible is True and values['hidden_raw'] is False and native in local_vision[1])
+                if native and local_vision and values['hidden_raw'] is not None and unit.visible is not None else None)
             # UID reuse starts a separate incarnation; this identity is only battle-local.
-            units.append(dict(id=f'{unit.uid}:{unit.address:x}:{unit.result:x}', uid=unit.uid,
+            units.append(dict(id=uid, uid=unit.uid,
                 name=unit.name, army=str(unit.army), alliance=unit.alliance,
                 controlled=unit.owner == sample.controller,
                 side='Allied' if unit.alliance == sample.player_alliance else 'Enemy', **values))
@@ -395,6 +400,7 @@ class LoggerReader(StatlineReader,InspectorReader):
         effect_damage_scale=self.effect_damage_scale(sample.token)
         if self.roots()!=sample.token:raise ReadError('Battle changed while reading report fields and the battle clock.')
         if self.battle_phase(sample.token)!=phase:raise ReadError('Battle phase changed while reading the battle clock.')
+        self.live_visibility=live_visibility
         return dict(schema=1, kind='sample', sim_s=clock['elapsed_s'] if clock else None,
                     model_s=sample.game_ms/1000 if sample.game_ms is not None else None,battle_clock=clock,
                     units=units, armies=armies, unreadable_units=sample.errors,

@@ -36,6 +36,7 @@ class MainMenu:
         self.ready=threading.Event();self.hwnd=None;self.error=None
         self.closed=threading.Event();self.closing=False;self.dimmer=None
         self.hover_row=-1
+        self.live_meter_visible=False
         self.status='Waiting for WARHAMMER III';self.questions=queue.Queue()
         self.thread=threading.Thread(target=self.run,name='battle-logger-menu',daemon=True)
 
@@ -48,6 +49,9 @@ class MainMenu:
         if self.hwnd:self.user.PostMessageW(self.hwnd,message,0,0)
 
     def focus(self):self.post(0x8005)
+    def set_live_meter_visible(self,visible):
+        if self.live_meter_visible!=bool(visible):
+            self.live_meter_visible=bool(visible);self.post(0x8003)
     def update(self,status):self.status=status;self.post(0x8003)
     def ask_late_start(self,request,answer):
         self.pending_request=request
@@ -144,7 +148,7 @@ class MainMenu:
         static_backgrounds={}
         instance=kernel.GetModuleHandleW(None);icon=load_tray_icon()
         name=f'WH3LoggerMenu_{os.getpid()}_{id(self)}'
-        rows=[];signature=None;listing=status=recovery=notes_control=rename_control=rename_error=None
+        rows=[];signature=None;listing=status=recovery=notes_control=rename_control=rename_error=live_button=None
         hovered_buttons=set()
         background=BG if self.kind=='menu' else MODAL
         owner_disabled=False;dimmer_registered=False
@@ -172,10 +176,6 @@ class MainMenu:
                 wp=(wp&~15)|11
             return common.DefSubclassProc(hwnd,msg,wp,lp)
         hover_proc=SubProc(hover_callback)
-        displayed_text={}
-        def set_text(handle,text):
-            if displayed_text.get(handle)!=text:
-                user.SetWindowTextW(handle,text);displayed_text[handle]=text
         def refresh():
             nonlocal rows,signature
             entries=self.library.entries()
@@ -191,8 +191,9 @@ class MainMenu:
                     user.SendMessageW(listing,0x180,0,ctypes.addressof(buffer))
                     if row['name']==selected_name:user.SendMessageW(listing,0x186,index,0)
                 if rows and selected_name is None:user.SendMessageW(listing,0x186,0,0)
-            set_text(status,self.status)
-            set_text(recovery,self.library.status or ('No recordings yet. Battles will appear here after recording.' if not rows else 'Double-click a battle to open it in the app. Interrupted recordings recover when opened.'))
+            if live_button:user.SetWindowTextW(live_button,'Hide Live Meter' if self.live_meter_visible else 'Open Live Meter')
+            user.SetWindowTextW(status,self.status)
+            user.SetWindowTextW(recovery,self.library.status or ('No recordings yet. Battles will appear here after recording.' if not rows else 'Double-click a battle to open it in the app. Interrupted recordings recover when opened.'))
         def open_selected(action='open_capture'):
             selected=user.SendMessageW(listing,0x188,0,0)
             if not 0<=selected<len(rows):return
@@ -214,6 +215,7 @@ class MainMenu:
                     for popup in (self.prompt,self.update_prompt,self.rename_prompt,self.welcome):
                         if popup and not popup.closed.is_set():popup.focus();return 0
                 user.ShowWindow(hwnd,9);user.SetForegroundWindow(hwnd);return 0
+            if msg==0x113 and self.kind=='toast':user.DestroyWindow(hwnd);return 0
             if msg in (0x113,0x8003) and self.kind=='menu':refresh();return 0
             if msg==0x8007:
                 if self.closing or self.welcome or not self.show_welcome:return 0
@@ -274,6 +276,7 @@ class MainMenu:
                             self.rename_prompt.thread.start()
                 elif ident==1:open_selected()
                 elif ident==2:open_selected('export_capture')
+                elif ident==12:self.actions.put('toggle_live_meter')
                 elif ident in (3,4,5,6,7):
                     self.actions.put({3:'settings',4:'check_updates',5:'restart',6:'exit',7:'open_folder'}[ident])
                 return 0
@@ -290,7 +293,6 @@ class MainMenu:
             if msg==0xf:
                 painting=Paint();dc=user.BeginPaint(hwnd,ctypes.byref(painting))
                 try:
-                    user.FillRect(dc,ctypes.byref(painting.rect),brushes[background])
                     rect=w.RECT(22,166,818,494) if self.kind=='menu' else w.RECT()
                     if self.kind!='menu':user.GetClientRect(hwnd,ctypes.byref(rect))
                     user.FrameRect(dc,ctypes.byref(rect),brushes[BORDER if self.kind=='menu' else MODAL_BORDER])
@@ -322,7 +324,7 @@ class MainMenu:
                     rect.left+=17;rect.right-=12;flags=0x24|0x8000;size=14
                 else:
                     hover=draw.hwnd in hovered_buttons
-                    primary=draw.ident in ((1,) if self.kind=='menu' else (9,11))
+                    primary=draw.ident in ((1,12) if self.kind=='menu' else (9,11))
                     danger=self.kind=='menu' and draw.ident==6
                     if primary:
                         fill=PRIMARY_DOWN if selected else GOLD if hover else PRIMARY
@@ -349,8 +351,8 @@ class MainMenu:
         if self.kind!='menu':wc.style=0x20000
         if not user.RegisterClassW(ctypes.byref(wc)):raise ctypes.WinError(ctypes.get_last_error())
         try:
-            width,height=(840,650) if self.kind=='menu' else (660,580) if self.kind=='welcome' else (600,350) if self.kind=='late' else (620,420)
-            style=0x02ca0000;rect=w.RECT(0,0,width,height)
+            width,height=(360,120) if self.kind=='toast' else (840,650) if self.kind=='menu' else (660,580) if self.kind=='welcome' else (600,350) if self.kind=='late' else (620,420)
+            style=0x80000000 if self.kind=='toast' else 0x02ca0000;rect=w.RECT(0,0,width,height)
             user.AdjustWindowRect(ctypes.byref(rect),style,False)
             title=self.dialog_title or ('WARHAMMER III Battle Logger' if self.kind=='menu' else f"What's new in v{VERSION}" if self.kind=='welcome' else 'Battle already in progress')
             x=y=0x80000000;owner=self.owner
@@ -373,7 +375,9 @@ class MainMenu:
                 owner=self.dimmer
                 x=bounds.left+((bounds.right-bounds.left)-(rect.right-rect.left))//2
                 y=bounds.top+((bounds.bottom-bounds.top)-(rect.bottom-rect.top))//2
-            self.hwnd=user.CreateWindowExW(0x02000000 if self.kind=='menu' else 0,name,title,style,x,y,
+            if self.kind=='toast':
+                work=w.RECT();user.SystemParametersInfoW(48,0,ctypes.byref(work),0);x=work.right-width-20;y=work.bottom-height-20
+            self.hwnd=user.CreateWindowExW(0x08000088 if self.kind=='toast' else 0,name,title,style,x,y,
                 rect.right-rect.left,rect.bottom-rect.top,owner,None,instance,None)
             if not self.hwnd:raise ctypes.WinError(ctypes.get_last_error())
             def child(kind,text,x,y,width,height,ident=0,extra=0,size=14,color=TEXT,background=background):
@@ -388,7 +392,11 @@ class MainMenu:
                     if not common.SetWindowSubclass(handle,hover_proc,1,20 if kind=='LISTBOX' else ident):raise ctypes.WinError(ctypes.get_last_error())
                 return handle
             child('STATIC','WARHAMMER III Battle Logger',22,18,width-44,20,size=13,color=GOLD)
-            if self.kind=='menu':
+            if self.kind=='toast':
+                child('STATIC',self.dialog_title or 'Battle detected',22,42,width-44,40,size=31)
+                child('STATIC',self.dialog_text or '',22,88,width-44,24,size=12,color=MUTED)
+                user.SetTimer(self.hwnd,1,4000,None)
+            elif self.kind=='menu':
                 child('STATIC','Battle reports',22,44,450,42,size=31)
                 status=child('STATIC',self.status,488,58,330,24,extra=2,size=12,color=MUTED)
                 child('STATIC','Close this window to keep logging in the tray.',22,94,796,24,color=MUTED)
@@ -396,8 +404,9 @@ class MainMenu:
                 listing=child('LISTBOX','',23,167,794,326,20,0x00210151)
                 self.listing=listing
                 recovery=child('STATIC','',22,506,796,42,size=12,color=MUTED)
-                for ident,text,x,bw in [(1,'Open report',22,140),(8,'Rename Battle',172,150),(2,'Export HTML',332,150),(7,'Open folder',492,130)]:
-                    child('BUTTON',text,x,558,bw,34,ident,0x10000)
+                for ident,text,x,bw in [(1,'Open report',22,140),(8,'Rename Battle',172,150),(2,'Build HTML',332,150),(7,'Open folder',492,130),(12,'Open Live Meter',632,186)]:
+                    button=child('BUTTON',text,x,558,bw,34,ident,0x10000)
+                    if ident==12:live_button=button
                 for ident,text,x,bw in [(3,'Settings',22,112),(4,'Check for updates',144,170),(5,'Restart app',558,130),(6,'Exit logger',698,120)]:
                     child('BUTTON',text,x,606,bw,30,ident,0x10000)
                 refresh();user.SetTimer(self.hwnd,1,2000,None)
@@ -427,7 +436,8 @@ class MainMenu:
                 for attribute,color in ((34,MODAL_BORDER if self.kind!='menu' else BORDER),(35,background),(36,TEXT)):
                     value=w.DWORD(color);dwm.DwmSetWindowAttribute(self.hwnd,attribute,ctypes.byref(value),4)
             except OSError:pass
-            user.ShowWindow(self.hwnd,5);user.SetForegroundWindow(self.hwnd)
+            user.ShowWindow(self.hwnd,4 if self.kind=='toast' else 5)
+            if self.kind!='toast':user.SetForegroundWindow(self.hwnd)
             if rename_control:
                 user.SetFocus(rename_control);user.SendMessageW(rename_control,0xb1,0,-1)
             self.ready.set()
@@ -444,7 +454,10 @@ class MainMenu:
             if self.hwnd:user.DestroyWindow(self.hwnd)
             self.hwnd=None
             if self.dimmer:user.DestroyWindow(self.dimmer);self.dimmer=None
-            if owner_disabled:user.EnableWindow(self.owner,True)
+            if owner_disabled:
+                user.EnableWindow(self.owner,True)
+                if self.kind=='welcome' and not self.closing:
+                    user.ShowWindow(self.owner,9);user.SetForegroundWindow(self.owner)
             if dimmer_registered:user.UnregisterClassW(name+'_Dimmer',instance)
             user.UnregisterClassW(name,instance);user.DestroyIcon(icon)
             for handle in (*fonts.values(),*brushes.values()):gdi.DeleteObject(handle)

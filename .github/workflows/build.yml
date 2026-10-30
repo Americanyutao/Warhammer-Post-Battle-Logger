@@ -42,16 +42,18 @@ jobs:
           python -B -c "import os,re,runpy; tag=os.environ['RELEASE_TAG']; version=runpy.run_path('src/version.py')['VERSION']; assert re.fullmatch(r'v\d+\.\d+\.\d+',tag) and tag=='v'+version, 'Release tag must match src/version.py'"
       - name: Install dependencies
         run: python -m pip install -r requirements-build.txt
-      - name: Run offline tests
-        run: python -B tools/test_ci.py
       - name: Check report JavaScript syntax
         run: |
           node --check src/report_view.js
           node --check src/viewer_boot.js
       - name: Build tray application
         run: python -B tools/build_release.py
-      - name: Check packaged application without a desktop or game
-        run: python -B tools/check_release.py --headless
+      - name: Validate packaged application without a desktop or game
+        run: |
+          $check = Start-Process -FilePath "$PWD/release/WH3BattleLogger/WH3BattleLogger.exe" -ArgumentList '--check-install','build/app-check.json' -WindowStyle Hidden -Wait -PassThru
+          if ($check.ExitCode -ne 0) { throw 'Packaged app validation failed' }
+          $result = Get-Content -Raw -Encoding utf8 build/app-check.json | ConvertFrom-Json
+          if (-not ($result.frozen -and $result.report_rendered -and $result.encryption_roundtrip)) { throw 'Packaged app validation was incomplete' }
       - name: Package release ZIP and incremental update manifest
         run: python -B tools/package_update.py
       - name: Upload release ZIP and update manifest
@@ -82,7 +84,7 @@ jobs:
         with:
           name: WH3BattleLogger-release-files
           path: build/publish
-      - name: Attach tested files to a draft release
+      - name: Attach built files to a draft release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}

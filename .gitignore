@@ -24,3 +24,32 @@ report-corrections.json
 /preferences/
 
 /shareables/
+
+# Local validation, investigation and comparison outputs are not public source.
+/tests/
+/docs/
+/exports/
+/state/
+/src/app.py
+/src/engagement.py
+/Run-Battle-Logger.cmd
+
+# Publish only the tools needed to build/package the executable and its updater.
+/tools/*
+!/tools/build_release.py
+!/tools/prune_report_assets.py
+!/tools/package_update.py
+!/tools/prepare_github_release.py
+
+# Root allowlist: new local artifacts stay private unless explicitly approved.
+/*
+!/.gitignore
+!/README.md
+!/.github/
+!/assets/
+!/profiles/
+!/src/
+!/tools/
+!/requirements.txt
+!/requirements-build.txt
+!/Run-Battle-Logger-Release.cmd

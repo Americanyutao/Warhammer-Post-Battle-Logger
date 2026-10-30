@@ -25,16 +25,17 @@ class Transitions:
         self.values={}
         self.generation=None
 
-    def update(self, targets, now, generation=None):
+    def update(self, targets, now, generation=None,duration=0.5):
+        duration=max(.01,float(duration))
         if generation!=self.generation:
             self.values.clear();self.generation=generation
         self.values={key:tween for key,tween in self.values.items() if key in targets}
         for key,target in targets.items():
             previous=self.values.get(key)
             if previous is None:
-                self.values[key]=Tween(target,target,now)
+                self.values[key]=Tween(target,target,now,duration)
             elif previous.target!=target:
-                self.values[key]=Tween(previous.value(now),target,now)
+                self.values[key]=Tween(previous.value(now),target,now,duration)
 
     def snapshot(self, now):
         return {key:tween.value(now) for key,tween in self.values.items()}

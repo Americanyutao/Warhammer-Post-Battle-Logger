@@ -326,11 +326,16 @@ def apply_update(destination,pid):
         window.update('Finishing saving and closing the logger…')
         wait_for_exit(pid)
         install_files(stage,destination,window.update)
-        # The new staged helper also handles the first upgrade from an older app
-        # whose Check for updates action does not yet know about HTML cleanup.
-        from log_migration import delete_capture_html
-        try:delete_capture_html(destination)
-        except OSError:window.update('Update installed. Some old HTML exports could not be removed.',check_cancel=False)
+        from report_library import ReportLibrary
+        library=ReportLibrary(destination)
+        try:library.move_shareables()
+        except (OSError,ValueError):window.update('Some older HTMLs could not be moved.',check_cancel=False)
+        library.clean_legacy_names()
+        from log_migration import optimize_captures
+        try:optimize_captures(destination,precision=True,progress=lambda text:window.update(text,check_cancel=False))
+        except (OSError,ValueError):window.update('Update installed. Some recordings could not be compressed.',check_cancel=False)
+        from report import compress_existing_html
+        compress_existing_html(destination,progress=lambda text:window.update(text,check_cancel=False))
         subprocess.Popen([str(destination/'WH3BattleLogger.exe'),'--cleanup-update',str(stage.parent),'--wait-pid',str(os.getpid())],cwd=destination)
     except Cancelled:
         # install_files has restored every original file before this branch.

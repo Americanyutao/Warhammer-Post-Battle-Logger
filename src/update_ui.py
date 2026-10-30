@@ -20,9 +20,9 @@ class Cancelled(Exception):
 
 
 class ProgressWindow:
-    def __init__(self, title='Battle Logger update', cancellable=True, about=False, settings=None):
+    def __init__(self, title='Battle Logger update', cancellable=True, about=False, settings=None, on_saved=None):
         self.title=title; self.cancellable=cancellable; self.about=about
-        self.settings=settings
+        self.settings=settings;self.on_saved=on_saved
         self.cancelled=threading.Event();self.ready=threading.Event()
         self.hwnd=None;self.error=None;self.text='Checking for updates…';self.percent=0
         self.done=0;self.total=0;self.unit='files'
@@ -122,7 +122,7 @@ class ProgressWindow:
         instance=kernel.GetModuleHandleW(None)
         name=f'WH3LoggerUpdate_{os.getpid()}_{id(self)}'
         label=bar=heading=details=cancel=pause=filename=remaining=items=toggle=None
-        icons_checkbox=None
+        icons_checkbox=open_meter_checkbox=close_meter_checkbox=None
         expanded=True
         class DrawItem(ctypes.Structure):
             _fields_=[('kind',w.UINT),('ident',w.UINT),('item',w.UINT),('action',w.UINT),('state',w.UINT),('hwnd',w.HWND),('dc',w.HDC),('rect',w.RECT),('data',ctypes.c_size_t)]
@@ -173,7 +173,11 @@ class ProgressWindow:
             if self.settings is not None and msg==0x111 and (wp&0xffff)==2:
                 user.DestroyWindow(hwnd);return 0
             if self.settings is not None and msg==0x111 and (wp&0xffff)==6:
-                try:self.settings.save(icons=user.SendMessageW(icons_checkbox,0xf0,0,0)==1)
+                try:
+                    self.settings.save(icons=user.SendMessageW(icons_checkbox,0xf0,0,0)==1,
+                        logging_interval_seconds=user.SendMessageW(interval_combo,0x147,0,0)+1,
+                        open_meter_on_battle=user.SendMessageW(open_meter_checkbox,0xf0,0,0)==1,close_meter_on_end=user.SendMessageW(close_meter_checkbox,0xf0,0,0)==1)
+                    if self.on_saved:self.on_saved()
                 except (OSError,ValueError) as error:
                     silent_message(str(error),'Could not save settings');return 0
                 user.DestroyWindow(hwnd);return 0
@@ -228,7 +232,7 @@ class ProgressWindow:
         proc=Proc(callback);wc=WC();wc.proc=proc;wc.instance=instance;wc.icon=icon;wc.background=white;wc.name=name
         if not user.RegisterClassW(ctypes.byref(wc)):raise ctypes.WinError(ctypes.get_last_error())
         try:
-            rect=w.RECT(0,0,540,224 if self.settings is not None else 180 if self.about else 346)
+            rect=w.RECT(0,0,540,390 if self.settings is not None else 180 if self.about else 346)
             user.AdjustWindowRect(ctypes.byref(rect),0x00C80000,False)
             self.hwnd=user.CreateWindowExW(0,name,self.title,0x00C80000,0x80000000,0x80000000,rect.right-rect.left,rect.bottom-rect.top,None,None,instance,None)
             if not self.hwnd:raise ctypes.WinError(ctypes.get_last_error())
@@ -249,9 +253,24 @@ class ProgressWindow:
                 icons_checkbox=child('BUTTON','Icons',44,52,450,28,7,extra=3|0x10000)
                 self.icons_checkbox=icons_checkbox
                 user.SendMessageW(icons_checkbox,0xf1,int(self.settings.report_options()['icons']),0)
-                child('STATIC','Applies to newly opened views and HTML exports.',24,140,490,22)
-                child('BUTTON','Save',286,176,110,32,6,extra=1|0x10000)
-                child('BUTTON','Cancel',406,176,110,32,1,extra=0x10000)
+                child('BUTTON','Battle logging',24,136,492,110,extra=7)
+                child('STATIC','Logging interval',44,166,185,22)
+                interval_combo=child('COMBOBOX','',236,160,258,170,8,extra=3|0x200000|0x10000)
+                self.interval_combo=interval_combo
+                for seconds in range(1,6):
+                    text=ctypes.create_unicode_buffer('Once per second' if seconds==1 else f'Once every {seconds} seconds')
+                    user.SendMessageW(interval_combo,0x143,0,ctypes.addressof(text))
+                options=self.settings.logger_options()
+                user.SendMessageW(interval_combo,0x14e,options['logging_interval_seconds']-1,0)
+                child('STATIC','Interval changes apply from the next battle.',44,204,448,22)
+                lifecycle=self.settings.meter_lifecycle()
+                open_meter_checkbox=child('BUTTON','Open meter when a battle starts',44,250,450,26,10,extra=3|0x10000)
+                close_meter_checkbox=child('BUTTON','Close meter when a battle ends',44,280,450,26,11,extra=3|0x10000)
+                user.SendMessageW(open_meter_checkbox,0xf1,int(lifecycle['open_meter_on_battle']),0)
+                user.SendMessageW(close_meter_checkbox,0xf1,int(lifecycle['close_meter_on_end']),0)
+                child('STATIC','Icon changes apply to newly opened reports and exports.',24,322,492,22)
+                child('BUTTON','Save',286,350,110,32,6,extra=1|0x10000)
+                child('BUTTON','Cancel',406,350,110,32,1,extra=0x10000)
                 class ToolInfo(ctypes.Structure):
                     _fields_=[('size',w.UINT),('flags',w.UINT),('hwnd',w.HWND),('ident',ctypes.c_size_t),
                         ('rect',w.RECT),('instance',w.HINSTANCE),('text',w.LPWSTR),('param',w.LPARAM),('reserved',ctypes.c_void_p)]
