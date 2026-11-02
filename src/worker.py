@@ -118,12 +118,15 @@ class Worker(threading.Thread):
         summary = self.battle.summary() if self.preview and self.battle else None
         reports = [dict(path=str(r.path), report=str(r.report_path) if r.report_path else None,
             done=r.done.is_set(), error=r.error, dropped=r.dropped) for r in self.recorders[-10:]]
+        # LiveRoster mutates freshness/presence at the next refresh. Give the
+        # UI its own scalar rows so those partial updates cannot flash it grey.
+        live_units = [dict(row) for row in self.live_rows.values()] if self.live_enabled else []
         latest_put(self.channel, dict(status=self.status, summary=summary, stats=dict(self.stats),
                                       reports=reports, recording=self.recorder is not None,
                                       late_start_request=self.late_start_request,
                                       live=dict(generation=self.battle_generation,active=self.battle_active,
                                           interval_seconds=self.interval,status=self.status,
-                                          units=list(self.live_rows.values()) if self.live_enabled else [])))
+                                          units=live_units)))
 
     def finish(self, reason):
         if self.recorder:
