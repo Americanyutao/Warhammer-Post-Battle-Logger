@@ -13,6 +13,8 @@ P=Path(__file__).resolve().parents[1]
 
 
 def main(build_only=False):
+    sys.path.insert(0,str(P/'src'))
+    from version import VERSION
     dependencies=Path(os.environ.get('WH3_BUILD_DEPS', P/'build/packaging-deps'))
     sys.path.insert(0,str(dependencies))
     if importlib.util.find_spec('PyInstaller') is None:
@@ -44,7 +46,7 @@ def main(build_only=False):
     # Merge only built app files. Existing captures/keys in a release stay intact.
     destination=P/'release/WH3BattleLogger'
     (built/'README.txt').write_text(
-        'WARHAMMER III BATTLE LOGGER\n\n'
+        f'WARHAMMER III BATTLE LOGGER {VERSION}\n\n'
         'See where your army made the difference.\n\n'
         'Automatic battle recording, a live damage meter, and detailed reports with damage, healing budgets, statlines, buffs/debuffs and movement maps.\n\n'
         'GET STARTED\n'
@@ -64,8 +66,6 @@ def main(build_only=False):
     executable=(built if build_only else destination)/'WH3BattleLogger.exe'
     if not executable.is_file():raise RuntimeError('Release executable was not produced.')
     import PyInstaller
-    sys.path.insert(0,str(P/'src'))
-    from version import VERSION
     (P/'build/release-build.json').write_text(json.dumps(dict(executable=str(executable),
         version=VERSION,pyinstaller=PyInstaller.__version__,python=sys.version,windowless=True,
         private_capture_data_included=False),indent=2)+'\n',encoding='utf-8')
