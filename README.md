@@ -18,7 +18,7 @@
 
 # WARHAMMER III Battle Logger
 
-Current release: **3.0.4** (release tag `v3.0.4`; `3.0.4` is an alias for the same commit).
+Current release: **3.0.5** (release tag `v3.0.5`).
 
 See where your army made the difference.
 
