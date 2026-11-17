@@ -168,7 +168,9 @@ class Worker(threading.Thread):
                             continue
                         module = api.game_module(pids[0])
                         self.memory = ProcessMemory(api, pids[0])
-                        profile = select_profile(self.memory, module, profiles)
+                        self.status = 'Checking game version'
+                        self.publish()
+                        profile = select_profile(self.memory, module, profiles, cache_dir=self.root / 'state/profiles')
                         self.profile = profile
                         self.reader = LoggerReader(self.memory, module, profile)
                     if self.preview:calls, size = self.memory.calls, self.memory.bytes_read
