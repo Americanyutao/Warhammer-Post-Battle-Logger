@@ -7,6 +7,7 @@ import os
 import struct
 import time
 from pathlib import Path
+from relocate import RelocationError, adapt_profile
 
 
 class ReadError(RuntimeError):
@@ -69,11 +70,65 @@ def load_profiles(directory):
     return profiles
 
 
-def select_profile(memory, module, profiles, identity=None):
+_adapt_failures = {}
+
+
+def _cached_profiles(cache_dir):
+    if not cache_dir or not Path(cache_dir).is_dir():
+        return []
+    try:
+        return load_profiles(cache_dir)
+    except (UnsupportedBuild, OSError, ValueError):
+        return []
+
+
+def adapt_to_build(module, profiles, stamp, size, cache_dir=None):
+    """Relocate the newest compatible verified profile into a patched executable.
+
+    Returns the adapted profile or raises UnsupportedBuild when the battle code really changed.
+    The result is cached by executable fingerprint so later launches skip the search."""
+    if not module.get('path'):
+        raise UnsupportedBuild('Unsupported game build ' + str(stamp) + ': the game executable path is unknown.')
+    path = Path(module['path'])
+    try:
+        key = (str(path), stamp, size, path.stat().st_mtime_ns)
+    except OSError as error:
+        raise UnsupportedBuild('Unsupported game build: the game executable could not be read (' + str(error) + ').')
+    if key in _adapt_failures:
+        raise UnsupportedBuild(_adapt_failures[key])
+    image = path.read_bytes()
+    failures = []
+    for profile in sorted(profiles, key=lambda p: p['pe_timestamp'], reverse=True):
+        try:
+            adapted = adapt_profile(profile, image)
+        except RelocationError as error:
+            failures.append(str(error))
+            continue
+        if (adapted['pe_timestamp'], adapted['image_size']) != (stamp, size):
+            failures.append('The executable on disk differs from the running game.')
+            continue
+        if cache_dir:
+            try:
+                Path(cache_dir).mkdir(parents=True, exist_ok=True)
+                target = Path(cache_dir) / ('adapted_' + str(stamp) + '_' + adapted['source_sha256'][:12] + '.json')
+                temporary = target.with_suffix('.tmp')
+                temporary.write_text(json.dumps(adapted, indent=1), encoding='utf-8')
+                os.replace(temporary, target)
+            except OSError:
+                pass
+        return adapted
+    message = ('Unsupported game build ' + str(stamp) + ': this game update changed the battle data the logger reads ('
+               + (failures[0] if failures else 'no profile') + '). Check for a Battle Logger update.')
+    _adapt_failures[key] = message
+    raise UnsupportedBuild(message)
+
+
+def select_profile(memory, module, profiles, identity=None, cache_dir=None):
     stamp, size = identity if identity is not None else pe_identity(memory.read, module['base'])
-    candidates = [profile for profile in profiles if profile['pe_timestamp'] == stamp and profile['image_size'] == size]
+    match = lambda items: [p for p in items if p['pe_timestamp'] == stamp and p['image_size'] == size]
+    candidates = match(profiles) or match(_cached_profiles(cache_dir))
     if not candidates:
-        raise UnsupportedBuild('Unsupported game build. Save a diagnostic snapshot so its build information can be checked.')
+        candidates = [adapt_to_build(module, profiles, stamp, size, cache_dir)]
     failures = []
     for profile in candidates:
         try:
