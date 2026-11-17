@@ -18,7 +18,7 @@
 
 # WARHAMMER III Battle Logger
 
-Current release: **3.0.5** (release tag `v3.0.5`).
+Current release: **3.1.0** (release tag `v3.1.0`).
 
 See where your army made the difference.
 
